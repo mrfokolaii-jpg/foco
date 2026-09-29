@@ -10,9 +10,10 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
       - uses: android-actions/setup-android@v3
-      - uses: gradle/gradle-build-action@v2
-        with:
-          arguments: assembleDebug
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: foco-apk-فارسی
