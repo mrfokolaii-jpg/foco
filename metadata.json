@@ -1,0 +1,8 @@
+{
+  "name": "foko.app",
+  "description": "دستیار جامع هوش مصنوعی تمام‌فارسی با قابلیت گفتگوی پیشرفته، تفکر عمیق، استودیو تصویر، ساخت موسیقی، تولید ویدیو و جستجوی زنده وب",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
