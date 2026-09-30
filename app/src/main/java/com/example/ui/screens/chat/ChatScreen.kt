@@ -36,7 +36,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,6 +49,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -114,6 +115,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.example.data.connectors.ConnectorSnapshot
+import com.example.data.connectors.ConnectorStore
 import com.example.data.local.ChatConversationEntity
 import com.example.data.model.AiModelCatalog
 import com.example.data.model.CatalogModel
@@ -139,8 +142,12 @@ fun ChatScreen(
 
     var inputText by remember { mutableStateOf("") }
     var showModelSelectorSheet by remember { mutableStateOf(false) }
+    var showPluginsSheet by remember { mutableStateOf(false) }
     var showTwoWayVoiceModal by remember { mutableStateOf(false) }
     var isListeningInBar by remember { mutableStateOf(false) }
+
+    val connectorStore = remember { ConnectorStore(context.applicationContext) }
+    var connectorSnapshot by remember { mutableStateOf(connectorStore.snapshot()) }
 
     LaunchedEffect(openTwoWayVoice) {
         if (openTwoWayVoice) {
@@ -160,6 +167,16 @@ fun ChatScreen(
         if (uris.isNotEmpty()) {
             viewModel.attachImages(context, uris)
             Toast.makeText(context, "${uris.size} تصویر پیوست شد", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Any-file picker launcher (zip, documents, apk, ...)
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.attachFiles(context, uris)
+            Toast.makeText(context, "${uris.size} فایل پیوست شد", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -474,7 +491,93 @@ fun ChatScreen(
                 }
             }
 
-            // Bottom Input Bar Container
+            // Attached Files Preview Row (zip, documents, any file)
+            if (uiState.attachedFiles.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "فایل‌های پیوست‌شده (${uiState.attachedFiles.size} فایل):",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = PersianTurquoise,
+                                fontWeight = FontWeight.Bold
+                            )
+                            TextButton(onClick = { viewModel.clearAttachedFiles() }) {
+                                Text("حذف همه", color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
+                            }
+                        }
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            items(uiState.attachedFiles, key = { it.id }) { item ->
+                                val sizeLabel = when {
+                                    item.sizeBytes >= 1_048_576 -> "%.1fMB".format(item.sizeBytes / 1_048_576f)
+                                    item.sizeBytes >= 1024 -> "${item.sizeBytes / 1024}KB"
+                                    else -> "${item.sizeBytes}B"
+                                }
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.InsertDriveFile,
+                                            contentDescription = null,
+                                            tint = PersianTurquoise,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Column {
+                                            Text(
+                                                text = item.name,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = sizeLabel,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        IconButton(
+                                            onClick = { viewModel.removeAttachedFile(item.id) },
+                                            modifier = Modifier.size(18.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "حذف",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Bottom Input Bar Container (flush with the bottom navigation bar)
             ModernChatInputBar(
                 inputText = inputText,
                 onTextChanged = { inputText = it },
@@ -482,17 +585,22 @@ fun ChatScreen(
                 isLoading = uiState.isLoading,
                 isListening = isListeningInBar,
                 hasImages = uiState.attachedImages.isNotEmpty(),
+                hasFiles = uiState.attachedFiles.isNotEmpty(),
                 onSendMessage = {
                     val prompt = inputText
                     inputText = ""
                     viewModel.sendMessage(prompt)
                 },
                 onAttachClick = { photoPickerLauncher.launch("image/*") },
+                onAttachFileClick = { filePickerLauncher.launch(arrayOf("*/*")) },
                 onVoiceClick = { onStartVoiceInput() },
                 onSelectModelClick = { showModelSelectorSheet = true },
+                onPluginsClick = {
+                    connectorSnapshot = connectorStore.snapshot()
+                    showPluginsSheet = true
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding()
                     .imePadding()
             )
         }
@@ -573,6 +681,95 @@ fun ChatScreen(
         }
     }
 
+    // Plugins / Connectors Bottom Sheet
+    if (showPluginsSheet) {
+        val connectedCount = listOf(
+            connectorSnapshot.githubConfigured,
+            connectorSnapshot.huggingFaceConfigured,
+            connectorSnapshot.cloudflareConfigured,
+            connectorSnapshot.driveConfigured
+        ).count { it }
+
+        ModalBottomSheet(
+            onDismissRequest = { showPluginsSheet = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "پلاگین‌ها و اتصالات (Plugins):",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Surface(
+                        color = if (connectedCount > 0) PersianTurquoise.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            text = "$connectedCount از ۴ متصل",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (connectedCount > 0) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                PluginOptionRow(
+                    emoji = "🐙",
+                    title = "GitHub",
+                    description = "خواندن/نوشتن فایل، جستجوی کد و کامیت دانش در مخزن",
+                    isConnected = connectorSnapshot.githubConfigured
+                )
+                PluginOptionRow(
+                    emoji = "🤗",
+                    title = "Hugging Face",
+                    description = "جستجو و استفاده از مدل‌ها و سرویس‌های هوش مصنوعی",
+                    isConnected = connectorSnapshot.huggingFaceConfigured
+                )
+                PluginOptionRow(
+                    emoji = "☁️",
+                    title = "Cloudflare",
+                    description = "مدیریت DNS، Workers و سرویس‌های لبه شبکه",
+                    isConnected = connectorSnapshot.cloudflareConfigured
+                )
+                PluginOptionRow(
+                    emoji = "📁",
+                    title = "Google Drive",
+                    description = "آپلود، دانلود و لیست فایل‌های ذخیره‌شده",
+                    isConnected = connectorSnapshot.driveConfigured
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        showPluginsSheet = false
+                        onNavigateToScreen("connectors")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("مدیریت و اتصال پلاگین‌ها (تب ابزارها)", fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+    }
+
     // Two-Way Interactive Voice Modal (JARVIS 1 Voice Engine)
     if (showTwoWayVoiceModal) {
         TwoWayVoiceModal(
@@ -588,6 +785,56 @@ fun ChatScreen(
 }
 
 @Composable
+fun PluginOptionRow(
+    emoji: String,
+    title: String,
+    description: String,
+    isConnected: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isConnected) PersianTurquoise.copy(alpha = 0.10f) else MaterialTheme.colorScheme.surface
+        ),
+        border = if (isConnected) androidx.compose.foundation.BorderStroke(1.5.dp, PersianTurquoise.copy(alpha = 0.7f)) else null
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = emoji, fontSize = 22.sp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Surface(
+                color = if (isConnected) PersianTurquoise.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = if (isConnected) "متصل ✓" else "قطع",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isConnected) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun ModernChatInputBar(
     inputText: String,
     onTextChanged: (String) -> Unit,
@@ -595,15 +842,18 @@ fun ModernChatInputBar(
     isLoading: Boolean,
     isListening: Boolean,
     hasImages: Boolean,
+    hasFiles: Boolean,
     onSendMessage: () -> Unit,
     onAttachClick: () -> Unit,
+    onAttachFileClick: () -> Unit,
     onVoiceClick: () -> Unit,
     onSelectModelClick: () -> Unit,
+    onPluginsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(26.dp),
+        modifier = modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 0.dp),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 6.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -611,9 +861,22 @@ fun ModernChatInputBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Attach file button (zip, documents, any file)
+            IconButton(
+                onClick = onAttachFileClick,
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AttachFile,
+                    contentDescription = "پیوست فایل",
+                    tint = if (hasFiles) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
             // Attach image button
             IconButton(
                 onClick = onAttachClick,
@@ -691,23 +954,38 @@ fun ModernChatInputBar(
                 }
             }
 
-            Spacer(modifier = Modifier.width(4.dp))
+            // Plugins (+) button next to the model pill
+            IconButton(
+                onClick = onPluginsClick,
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(PersianTurquoise.copy(alpha = 0.15f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "پلاگین‌ها و اتصالات",
+                    tint = PersianTurquoise,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(2.dp))
 
             // Send Button
             IconButton(
                 onClick = onSendMessage,
-                enabled = !isLoading && (inputText.isNotBlank() || hasImages),
+                enabled = !isLoading && (inputText.isNotBlank() || hasImages || hasFiles),
                 modifier = Modifier
                     .size(38.dp)
                     .background(
-                        if (!isLoading && (inputText.isNotBlank() || hasImages)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        if (!isLoading && (inputText.isNotBlank() || hasImages || hasFiles)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         CircleShape
                     )
             ) {
                 Icon(
                     imageVector = Icons.Default.ArrowUpward,
                     contentDescription = "ارسال پیام",
-                    tint = if (!isLoading && (inputText.isNotBlank() || hasImages)) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    tint = if (!isLoading && (inputText.isNotBlank() || hasImages || hasFiles)) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                     modifier = Modifier.size(18.dp)
                 )
             }
