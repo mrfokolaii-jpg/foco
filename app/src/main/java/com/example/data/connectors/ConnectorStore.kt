@@ -28,6 +28,14 @@ class ConnectorStore(context: Context) {
     fun hfToken(): String = prefs.getString(K_HF_TOKEN, "").orEmpty().trim()
     fun setHfToken(token: String) = prefs.edit().putString(K_HF_TOKEN, token.trim()).apply()
 
+    // ---- Cloudflare ---------------------------------------------------------
+    fun cloudflareToken(): String = prefs.getString(K_CF_TOKEN, "").orEmpty().trim()
+    fun cloudflareAccountId(): String = prefs.getString(K_CF_ACCOUNT_ID, "").orEmpty().trim()
+    fun setCloudflare(token: String, accountId: String = "") = prefs.edit()
+        .putString(K_CF_TOKEN, token.trim())
+        .putString(K_CF_ACCOUNT_ID, accountId.trim())
+        .apply()
+
     // ---- Google Drive -------------------------------------------------------
     fun driveClientId(): String = prefs.getString(K_DRIVE_CLIENT_ID, "").orEmpty().trim()
     fun driveClientSecret(): String = prefs.getString(K_DRIVE_CLIENT_SECRET, "").orEmpty().trim()
@@ -60,6 +68,7 @@ class ConnectorStore(context: Context) {
     fun snapshot(): ConnectorSnapshot = ConnectorSnapshot(
         githubConfigured = githubToken().isNotBlank(),
         huggingFaceConfigured = hfToken().isNotBlank(),
+        cloudflareConfigured = cloudflareToken().isNotBlank(),
         driveConfigured = driveAccessToken().isNotBlank() || driveRefreshToken().isNotBlank(),
         autoUpgradeEnabled = isAutoUpgradeEnabled(),
         continuousVoiceEnabled = isContinuousVoiceEnabled()
@@ -72,6 +81,8 @@ class ConnectorStore(context: Context) {
         private const val K_GH_REPO = "github_repo"
         private const val K_GH_BRANCH = "github_branch"
         private const val K_HF_TOKEN = "hf_token"
+        private const val K_CF_TOKEN = "cf_token"
+        private const val K_CF_ACCOUNT_ID = "cf_account_id"
         private const val K_DRIVE_CLIENT_ID = "drive_client_id"
         private const val K_DRIVE_CLIENT_SECRET = "drive_client_secret"
         private const val K_DRIVE_REFRESH = "drive_refresh"
@@ -89,6 +100,7 @@ class ConnectorStore(context: Context) {
 data class ConnectorSnapshot(
     val githubConfigured: Boolean = false,
     val huggingFaceConfigured: Boolean = false,
+    val cloudflareConfigured: Boolean = false,
     val driveConfigured: Boolean = false,
     val autoUpgradeEnabled: Boolean = true,
     val continuousVoiceEnabled: Boolean = true

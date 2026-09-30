@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -26,6 +27,7 @@ import com.example.data.model.SystemPersona
 import com.example.data.remote.AiRouter
 import com.example.data.remote.ApiResult
 import com.example.data.remote.GeminiApiService
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +46,14 @@ data class AttachedImage(
     val base64: String
 )
 
+data class AttachedFile(
+    val id: String = UUID.randomUUID().toString(),
+    val uri: Uri,
+    val name: String,
+    val sizeBytes: Long,
+    val textContent: String? = null
+)
+
 data class ChatUiState(
     val currentConversationId: String = UUID.randomUUID().toString(),
     val conversationTitle: String = "گفتگوی جدید",
@@ -57,6 +67,7 @@ data class ChatUiState(
     val isLoading: Boolean = false,
     val statusMessage: String? = null,
     val attachedImages: List<AttachedImage> = emptyList(),
+    val attachedFiles: List<AttachedFile> = emptyList(),
     val conversationsList: List<ChatConversationEntity> = emptyList(),
     val isApiKeyMissing: Boolean = false,
     val hasAnyProviderKey: Boolean = false
@@ -127,6 +138,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             conversationTitle = "گفتگوی جدید",
             messages = emptyList(),
             attachedImages = emptyList(),
+            attachedFiles = emptyList(),
             statusMessage = null
         )
     }
@@ -224,15 +236,86 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    // ---- File attachments (zip, documents, any file) ------------------------
+
+    private val textFileExtensions = setOf(
+        "txt", "md", "json", "csv", "xml", "html", "htm", "kt", "java", "py",
+        "js", "ts", "css", "log", "yml", "yaml", "kts", "gradle", "pro", "sql", "sh"
+    )
+
+    fun attachFiles(context: Context, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val newFiles = mutableListOf<AttachedFile>()
+            for (uri in uris) {
+                try {
+                    var name = "file"
+                    var size = 0L
+                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (cursor.moveToFirst()) {
+                            if (nameIdx >= 0) name = cursor.getString(nameIdx) ?: name
+                            if (sizeIdx >= 0) size = cursor.getLong(sizeIdx)
+                        }
+                    }
+                    val mime = context.contentResolver.getType(uri).orEmpty().lowercase()
+                    val ext = name.substringAfterLast('.', "").lowercase()
+                    val isTextLike = mime.startsWith("text/") || mime.contains("json") || ext in textFileExtensions
+                    val text = if (isTextLike && size in 1..500_000) {
+                        try {
+                            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
+                                it.readText().take(30_000)
+                            }
+                        } catch (_: Exception) { null }
+                    } else null
+                    newFiles.add(AttachedFile(uri = uri, name = name, sizeBytes = size, textContent = text))
+                } catch (_: Exception) {}
+            }
+            _uiState.value = _uiState.value.copy(
+                attachedFiles = _uiState.value.attachedFiles + newFiles,
+                statusMessage = if (newFiles.isEmpty()) "خواندن فایل ناموفق بود" else null
+            )
+        }
+    }
+
+    fun removeAttachedFile(id: String) {
+        _uiState.value = _uiState.value.copy(
+            attachedFiles = _uiState.value.attachedFiles.filter { it.id != id }
+        )
+    }
+
+    fun clearAttachedFiles() {
+        _uiState.value = _uiState.value.copy(attachedFiles = emptyList())
+    }
+
     fun sendMessage(inputText: String, onReply: ((String) -> Unit)? = null) {
         val trimmed = inputText.trim()
         val currentImages = _uiState.value.attachedImages
-        if (trimmed.isBlank() && currentImages.isEmpty()) return
+        val currentFiles = _uiState.value.attachedFiles
+        if (trimmed.isBlank() && currentImages.isEmpty() && currentFiles.isEmpty()) return
+
+        // Build a context block from attached files so the agent can work with them.
+        val filesBlock = if (currentFiles.isEmpty()) "" else currentFiles.joinToString("\n\n") { f ->
+            val sizeKb = (f.sizeBytes / 1024).coerceAtLeast(1)
+            if (f.textContent != null) {
+                "📎 محتوای فایل پیوست «${f.name}» (${sizeKb}KB):\n```\n${f.textContent}\n```"
+            } else {
+                "📎 فایل پیوست «${f.name}» (${sizeKb}KB) ارسال شد. این فایل باینری است؛ برای کار با آن از ابزارهای save_file و read_saved_file استفاده کن."
+            }
+        }
+        val effectiveText = listOf(trimmed, filesBlock).filter { it.isNotBlank() }.joinToString("\n\n")
+        val displayText = if (currentFiles.isEmpty()) {
+            trimmed
+        } else {
+            listOf(trimmed, currentFiles.joinToString("  ") { "📎 ${it.name}" })
+                .filter { it.isNotBlank() }.joinToString("\n")
+        }
 
         val base64List = currentImages.map { it.base64 }
         val userMessage = ChatMessage(
             sender = MessageSender.USER,
-            text = trimmed,
+            text = displayText,
             imageBase64 = base64List.firstOrNull(),
             imageBase64List = base64List
         )
@@ -242,8 +325,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Update conversation title if first user prompt
         val isFirstUserMessage = _uiState.value.messages.none { it.sender == MessageSender.USER }
-        val newTitle = if (isFirstUserMessage && trimmed.isNotBlank()) {
-            if (trimmed.length > 30) trimmed.take(28) + "..." else trimmed
+        val titleSource = trimmed.ifBlank { currentFiles.firstOrNull()?.name.orEmpty() }
+        val newTitle = if (isFirstUserMessage && titleSource.isNotBlank()) {
+            if (titleSource.length > 30) titleSource.take(28) + "..." else titleSource
         } else {
             _uiState.value.conversationTitle
         }
@@ -260,6 +344,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             isLoading = true,
             statusMessage = if (_uiState.value.isThinkingModeEnabled) "در حال تفکر عمیق و بررسی گام‌به‌گام..." else if (_uiState.value.isGoogleSearchEnabled) "در حال جستجو در گوگل و استخراج اطلاعات..." else "در حال پردازش و تولید پاسخ...",
             attachedImages = emptyList(),
+            attachedFiles = emptyList(),
             conversationTitle = newTitle
         )
 
@@ -291,7 +376,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             val replyText = AgentEngine.run(
                 context = appCtx,
-                userText = trimmed,
+                userText = effectiveText,
                 history = updatedMessages.dropLast(1),
                 catalogModel = effectiveModel,
                 keyStore = keyStore,
