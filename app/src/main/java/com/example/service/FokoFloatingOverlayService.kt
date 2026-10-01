@@ -1,6 +1,7 @@
 package com.example.service
 
 import android.Manifest
+import android.animation.LinearInterpolator
 import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
@@ -46,16 +47,22 @@ import com.example.data.agent.AgentEvent
 import com.example.data.agent.AgentPhase
 import com.example.data.connectors.ConnectorStore
 import com.example.data.local.ApiKeyStore
+import com.example.data.local.AppDatabase
+import com.example.data.local.ChatConversationEntity
+import com.example.data.local.ChatMessageEntity
+import com.example.data.local.VoiceSessionBus
 import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
 import com.example.data.model.SystemPersona
 import com.example.data.remote.AiRouter
+import com.example.util.SpeechText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.UUID
 
 /**
  * The floating FOKO assistant.
@@ -140,8 +147,9 @@ class FokoFloatingOverlayService : Service() {
             gravity = Gravity.BOTTOM or Gravity.START
         }
 
+        // The widget is now a single floating icon — no framed panel, no separate chat.
+        // Everything it hears and answers lands in the app's own chat.
         container.addView(buildOrb())
-        container.addView(buildPanel())
 
         root = container
         try {
@@ -159,14 +167,7 @@ class FokoFloatingOverlayService : Service() {
         wrapper.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         orbView = view
 
-        val glyph = TextView(this).apply {
-            text = "\uD83C\uDF99"
-            setTextColor(AColor.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
-            gravity = Gravity.CENTER
-        }
-        wrapper.addView(glyph, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        orbGlyph = glyph
+        // No static emoji glyph: the equalizer animation inside OrbView is the icon.
 
         var startX = 0
         var startY = 0
@@ -208,7 +209,8 @@ class FokoFloatingOverlayService : Service() {
                 MotionEvent.ACTION_UP -> {
                     val held = System.currentTimeMillis() - downTime
                     if (!moved) {
-                        if (held > 550) toggleHidden() else togglePanel()
+                        // Tap = start/stop talking. Long press = tuck the icon away.
+                        if (held > 550) toggleHidden() else toggleVoice()
                     } else {
                         snapToEdge()
                     }
@@ -341,26 +343,22 @@ class FokoFloatingOverlayService : Service() {
         return b
     }
 
-    private fun togglePanel() {
-        expanded = !expanded
-        if (expanded) {
-            if (hidden) setHidden(false)
-            panel?.visibility = View.VISIBLE
-            params?.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            clampIntoView()
-            inputField?.requestFocus()
-        } else {
-            panel?.visibility = View.GONE
-            params?.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            hideKeyboard()
+    /** Tap on the icon: start talking, or stop whatever FOKO is doing right now. */
+    private fun toggleVoice() {
+        if (hidden) setHidden(false)
+        when (phase) {
+            AgentPhase.LISTENING -> stopListening()
+            AgentPhase.SPEAKING -> {
+                tts?.stop()
+                setPhase(AgentPhase.IDLE)
+            }
+            AgentPhase.THINKING ->
+                Toast.makeText(this, "فوکو هنوز در حال پردازش است...", Toast.LENGTH_SHORT).show()
+            else -> startListening()
         }
-        updateLayout()
     }
 
     private fun toggleHidden() {
-        if (expanded) togglePanel()
         setHidden(!hidden)
     }
 
@@ -369,16 +367,16 @@ class FokoFloatingOverlayService : Service() {
         val size = if (hidden) dp(HIDDEN_SIZE_DP) else dp(ORB_SIZE_DP)
         orb?.layoutParams = LinearLayout.LayoutParams(size, size)
         orb?.alpha = if (hidden) 0.4f else 1f
-        orbGlyph?.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (hidden) 12f else 22f)
         updateLayout()
     }
 
     private fun clampIntoView() {
         val lp = params ?: return
         val metrics = resources.displayMetrics
-        val maxX = metrics.widthPixels - dp(300) - dp(ORB_SIZE_DP) - dp(16)
-        if (lp.x > maxX) lp.x = maxOf(0, maxX)
-        if (lp.y > metrics.heightPixels - dp(260)) lp.y = maxOf(0, metrics.heightPixels - dp(260))
+        val maxX = metrics.widthPixels - dp(ORB_SIZE_DP)
+        val maxY = metrics.heightPixels - dp(ORB_SIZE_DP)
+        lp.x = lp.x.coerceIn(0, maxOf(0, maxX))
+        lp.y = lp.y.coerceIn(0, maxOf(0, maxY))
     }
 
     private fun snapToEdge() {
@@ -414,31 +412,58 @@ class FokoFloatingOverlayService : Service() {
             AgentPhase.ERROR -> AColor.parseColor("#F59E0B")
             AgentPhase.IDLE -> AColor.parseColor("#0F766E")
         }
+        // The icon animates (equalizer) while FOKO listens or speaks.
         orbView?.setStateColor(color, newPhase == AgentPhase.LISTENING || newPhase == AgentPhase.SPEAKING)
-        orbGlyph?.text = when (newPhase) {
-            AgentPhase.LISTENING -> "\uD83D\uDC42"
-            AgentPhase.THINKING -> "\uD83E\uDDE0"
-            AgentPhase.SPEAKING -> "\uD83D\uDD0A"
-            AgentPhase.ERROR -> "\u26A0"
-            AgentPhase.IDLE -> "\uD83C\uDF99"
-        }
-        val label = message ?: when (newPhase) {
-            AgentPhase.LISTENING -> "در حال شنیدن..."
-            AgentPhase.THINKING -> "در حال تفکر..."
-            AgentPhase.SPEAKING -> "در حال پاسخ..."
-            AgentPhase.ERROR -> "خطا"
-            AgentPhase.IDLE -> "آماده"
-        }
-        statusText?.text = label
     }
 
-    private fun appendLog(who: String, text: String) {
-        val current = logText?.text?.toString().orEmpty()
-        val entry = "\n$who: $text"
-        logText?.text = (current + entry).trim()
-        mainHandler.postDelayed({
-            logScroll?.fullScroll(View.FOCUS_DOWN)
-        }, 60)
+    /**
+     * The widget keeps no transcript of its own — the conversation lives in the app's chat.
+     * Kept for compatibility with the remaining call sites.
+     */
+    private fun appendLog(who: String, text: String) = Unit
+
+    // ------------------------------------------------------- Chat integration --
+
+    /**
+     * Writes a turn into the conversation the app is showing, so the floating widget and the
+     * chat screen are one single conversation.
+     */
+    private fun persistTurn(sender: String, text: String, timestamp: Long) {
+        try {
+            val db = AppDatabase.getDatabase(applicationContext)
+            val dao = db.chatDao()
+            val conversationId = VoiceSessionBus.conversationId
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    if (dao.getConversationById(conversationId) == null) {
+                        dao.insertConversation(
+                            ChatConversationEntity(
+                                id = conversationId,
+                                title = VoiceSessionBus.VOICE_CONVERSATION_TITLE,
+                                modelId = AiRouter.pickDefault(ApiKeyStore(applicationContext)).id,
+                                personaId = "general",
+                                updatedAt = timestamp
+                            )
+                        )
+                    }
+                    dao.insertMessage(
+                        ChatMessageEntity(
+                            id = UUID.randomUUID().toString(),
+                            conversationId = conversationId,
+                            sender = sender,
+                            text = text,
+                            imageBase64 = null,
+                            timestamp = timestamp
+                        )
+                    )
+                    dao.getConversationById(conversationId)?.let { conv ->
+                        dao.updateConversation(conv.copy(updatedAt = timestamp))
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        } catch (_: Exception) {
+        }
     }
 
     // ------------------------------------------------------------- Voice ----
@@ -553,8 +578,14 @@ class FokoFloatingOverlayService : Service() {
             setPhase(AgentPhase.IDLE)
             return
         }
+        // Only Persian/English letters and digits reach the engine — no commas, no asterisks.
+        val spoken = SpeechText.forSpeech(text)
+        if (spoken.isBlank()) {
+            setPhase(AgentPhase.IDLE)
+            return
+        }
         setPhase(AgentPhase.SPEAKING, "در حال پاسخ صوتی...")
-        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "foko_reply")
+        engine.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, "foko_reply")
     }
 
     // ------------------------------------------------------------ Message ----
@@ -572,11 +603,11 @@ class FokoFloatingOverlayService : Service() {
             return
         }
         busy = true
-        appendLog("شما", text)
-        val userMsg = ChatMessage(sender = MessageSender.USER, text = text)
-        transcript.add(userMsg)
+        val now = System.currentTimeMillis()
+        // The turn goes straight into the app's chat — the widget has no box of its own.
+        persistTurn("USER", text, now)
+        transcript.add(ChatMessage(sender = MessageSender.USER, text = text, timestamp = now))
         setPhase(AgentPhase.THINKING, "در حال تفکر و اجرای ابزارها...")
-        hideKeyboard()
 
         scope.launch(Dispatchers.IO) {
             val keyStore = ApiKeyStore(applicationContext)
@@ -589,20 +620,27 @@ class FokoFloatingOverlayService : Service() {
                 history = history,
                 catalogModel = model,
                 keyStore = keyStore,
-                personaPrompt = persona
+                personaPrompt = persona,
+                // Same capabilities as the app: every connected service, with model rotation.
+                rotationChain = AiRouter.rotationChain(keyStore)
             ) { event ->
                 when (event) {
                     is AgentEvent.Status -> mainHandler.post { setPhase(event.phase, event.message) }
-                    is AgentEvent.ToolUsed -> mainHandler.post {
-                        appendLog("ابزار ${event.name}", event.summary)
+                    is AgentEvent.ModelSwitched -> mainHandler.post {
+                        Toast.makeText(
+                            this@FokoFloatingOverlayService,
+                            "مدل فعال: ${event.model.title}",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
+                    is AgentEvent.ToolUsed -> Unit
                     is AgentEvent.Failure -> mainHandler.post { setPhase(AgentPhase.ERROR, event.message) }
                     is AgentEvent.Reply -> Unit
                 }
             }
             transcript.add(ChatMessage(sender = MessageSender.ASSISTANT, text = reply))
+            persistTurn("ASSISTANT", reply, System.currentTimeMillis())
             mainHandler.post {
-                appendLog("فوکو", reply)
                 busy = false
                 speak(reply)
             }
@@ -657,8 +695,11 @@ class FokoFloatingOverlayService : Service() {
     class OrbView(context: Context) : View(context) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var color: Int = AColor.parseColor("#0F766E")
-        private var pulse = 0f
+        private var phase = 0f
+        private var animating = false
         private var animator: ValueAnimator? = null
+
+        private val twoPi = (2.0 * Math.PI).toFloat()
 
         init {
             paint.style = Paint.Style.FILL
@@ -670,14 +711,17 @@ class FokoFloatingOverlayService : Service() {
             invalidate()
         }
 
+        /** Continuous, equalizer-style animation — never a static microphone picture. */
         private fun startPulse() {
             if (animator?.isRunning == true) return
+            animating = true
             animator = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 900
+                duration = 1100
                 repeatCount = ValueAnimator.INFINITE
-                repeatMode = ValueAnimator.REVERSE
+                repeatMode = ValueAnimator.RESTART
+                interpolator = LinearInterpolator()
                 addUpdateListener {
-                    pulse = it.animatedValue as Float
+                    phase = it.animatedValue as Float
                     invalidate()
                 }
                 start()
@@ -687,7 +731,8 @@ class FokoFloatingOverlayService : Service() {
         private fun stopPulse() {
             animator?.cancel()
             animator = null
-            pulse = 0f
+            animating = false
+            phase = 0f
             invalidate()
         }
 
@@ -695,13 +740,41 @@ class FokoFloatingOverlayService : Service() {
             super.onDraw(canvas)
             val cx = width / 2f
             val cy = height / 2f
-            val base = minOf(width, height) / 2f - 4f
-            val glowRadius = base * (1f + 0.18f * pulse)
+            val base = minOf(width, height) / 2f - 2f
+
+            // Breathing halo
+            val breathe = if (animating) kotlin.math.abs(kotlin.math.sin(phase * twoPi)) else 0f
             paint.color = color
-            paint.alpha = (60 + 80 * pulse).toInt()
-            canvas.drawCircle(cx, cy, glowRadius, paint)
+            paint.alpha = if (animating) (70 + 60 * breathe).toInt() else 45
+            canvas.drawCircle(cx, cy, base * (1f + 0.20f * breathe), paint)
+
+            // Solid core
             paint.alpha = 255
             canvas.drawCircle(cx, cy, base, paint)
+
+            // Equalizer bars
+            paint.color = AColor.WHITE
+            paint.alpha = 236
+            val bars = 4
+            val barWidth = base * 0.19f
+            val gap = base * 0.15f
+            val total = bars * barWidth + (bars - 1) * gap
+            var x = cx - total / 2f
+            for (i in 0 until bars) {
+                val wave = kotlin.math.sin((phase + i * 0.2f) * twoPi)
+                val level = if (animating) 0.30f + 0.70f * kotlin.math.abs(wave) else 0.45f
+                val h = (base * 1.05f) * level
+                canvas.drawRoundRect(
+                    x,
+                    cy - h / 2f,
+                    x + barWidth,
+                    cy + h / 2f,
+                    barWidth / 2f,
+                    barWidth / 2f,
+                    paint
+                )
+                x += barWidth + gap
+            }
         }
     }
 

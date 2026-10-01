@@ -13,6 +13,7 @@ import com.example.data.agent.AgentEngine
 import com.example.data.agent.AgentEvent
 import com.example.data.agent.FokoTools
 import com.example.data.local.ApiKeyStore
+import com.example.data.local.VoiceSessionBus
 import com.example.data.local.AppDatabase
 import com.example.data.local.ChatConversationEntity
 import com.example.data.local.ChatMessageEntity
@@ -383,6 +384,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         val updatedMessages = _uiState.value.messages + userMessage
         val conversationId = _uiState.value.currentConversationId
+        // The floating widget appends its voice turns to this same conversation.
+        VoiceSessionBus.conversationId = conversationId
 
         // Update conversation title if first user prompt
         val isFirstUserMessage = _uiState.value.messages.none { it.sender == MessageSender.USER }
@@ -496,6 +499,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadConversation(conversationId: String) {
+        VoiceSessionBus.conversationId = conversationId
         viewModelScope.launch {
             val conv = chatDao.getConversationById(conversationId)
             chatDao.getMessagesForConversation(conversationId).collectLatest { entityList ->

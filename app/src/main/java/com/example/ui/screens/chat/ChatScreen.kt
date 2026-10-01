@@ -129,6 +129,7 @@ import com.example.data.model.CatalogModel
 import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
 import com.example.ui.screens.connectors.ConnectorAuthDialog
+import com.example.util.SpeechText
 import com.example.ui.screens.connectors.ConnectorAuthTarget
 import com.example.ui.theme.PersianTurquoise
 import com.example.ui.theme.PersianViolet
@@ -462,7 +463,12 @@ fun ChatScreen(
                                     Toast.makeText(context, "متن کپی شد", Toast.LENGTH_SHORT).show()
                                 },
                                 onSpeak = {
-                                    ttsEngine?.speak(message.text, TextToSpeech.QUEUE_FLUSH, null, message.id)
+                                    ttsEngine?.speak(
+                                        SpeechText.forSpeech(message.text),
+                                        TextToSpeech.QUEUE_FLUSH,
+                                        null,
+                                        message.id
+                                    )
                                 }
                             )
                         }
@@ -1284,7 +1290,7 @@ fun TwoWayVoiceModal(
                                     }
                                 }
                             })
-                            engine.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "live_reply")
+                            engine.speak(SpeechText.forSpeech(reply), TextToSpeech.QUEUE_FLUSH, null, "live_reply")
                         }
                     }
                 }
