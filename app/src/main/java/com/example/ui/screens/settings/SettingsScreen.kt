@@ -100,7 +100,17 @@ data class SettingsUiState(
     val gemini: String = "",
     val userEmail: String = "mrfokolaii@gmail.com",
     val accessibilityEnabled: Boolean = false,
-    val snapshot: ApiKeySnapshot = ApiKeySnapshot()
+    val snapshot: ApiKeySnapshot = ApiKeySnapshot(),
+    // 9Router — the self-hosted router that rotates free models for us
+    val nineRouterBaseUrl: String = ApiKeyStore.DEFAULT_9ROUTER_BASE_URL,
+    val nineRouterKey: String = "",
+    val nineRouterModel: String = "",
+    val nineRouterEnabled: Boolean = false,
+    // Manual provider: any site, its own URL, key and model
+    val customLabel: String = "",
+    val customBaseUrl: String = "",
+    val customKey: String = "",
+    val customModel: String = ""
 )
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -121,8 +131,49 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             gemini = keyStore.getGeminiOverride(),
             userEmail = keyStore.getUserEmail(),
             accessibilityEnabled = keyStore.isAccessibilityEnabled(),
-            snapshot = keyStore.snapshot()
+            snapshot = keyStore.snapshot(),
+            nineRouterBaseUrl = keyStore.getNineRouterBaseUrl(),
+            nineRouterKey = keyStore.getNineRouterKey(),
+            nineRouterModel = keyStore.getNineRouterModel(),
+            nineRouterEnabled = keyStore.isNineRouterEnabled(),
+            customLabel = keyStore.getCustomLabel(),
+            customBaseUrl = keyStore.getCustomBaseUrl(),
+            customKey = keyStore.getCustomKey(),
+            customModel = keyStore.getCustomModel()
         )
+    }
+
+    fun saveNineRouter(baseUrl: String, key: String, model: String, enabled: Boolean) {
+        viewModelScope.launch {
+            keyStore.setNineRouter(baseUrl, key, model)
+            keyStore.setNineRouterEnabled(enabled)
+            loadKeys()
+        }
+    }
+
+    fun setNineRouterEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            keyStore.setNineRouterEnabled(enabled)
+            loadKeys()
+        }
+    }
+
+    fun saveCustom(label: String, baseUrl: String, key: String, model: String) {
+        viewModelScope.launch {
+            keyStore.setCustom(label, baseUrl, key, model)
+            loadKeys()
+        }
+    }
+
+    /** Wipes every key except the Google Gemini one. */
+    fun clearOtherKeys() {
+        viewModelScope.launch {
+            keyStore.setHuggingFaceKey("")
+            keyStore.setXaiGrokKey("")
+            keyStore.setOpenRouterKey("")
+            keyStore.setGroqKey("")
+            loadKeys()
+        }
     }
 
     fun saveKeys(
@@ -162,6 +213,13 @@ fun SettingsScreen(
     var groqKey by remember(uiState.groq) { mutableStateOf(uiState.groq) }
     var gemKey by remember(uiState.gemini) { mutableStateOf(uiState.gemini) }
     var emailInput by remember(uiState.userEmail) { mutableStateOf(uiState.userEmail) }
+    var nineRouterBase by remember(uiState.nineRouterBaseUrl) { mutableStateOf(uiState.nineRouterBaseUrl) }
+    var nineRouterKey by remember(uiState.nineRouterKey) { mutableStateOf(uiState.nineRouterKey) }
+    var nineRouterModel by remember(uiState.nineRouterModel) { mutableStateOf(uiState.nineRouterModel) }
+    var customLabel by remember(uiState.customLabel) { mutableStateOf(uiState.customLabel) }
+    var customBase by remember(uiState.customBaseUrl) { mutableStateOf(uiState.customBaseUrl) }
+    var customKey by remember(uiState.customKey) { mutableStateOf(uiState.customKey) }
+    var customModel by remember(uiState.customModel) { mutableStateOf(uiState.customModel) }
     var accessibilityState by remember(uiState.accessibilityEnabled) { mutableStateOf(uiState.accessibilityEnabled) }
     var showAccessibilityHelpDialog by remember { mutableStateOf(false) }
 
@@ -290,50 +348,6 @@ fun SettingsScreen(
             }
         }
 
-        // Google / GitHub Account Integration Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = PersianTurquoise)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "حساب گوگل و یکپارچه‌سازی دسترسی‌ها",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                OutlinedTextField(
-                    value = emailInput,
-                    onValueChange = { emailInput = it },
-                    label = { Text("جیمیل متصل به کلیدها (Gmail)") },
-                    trailingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = PersianTurquoise) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-
-                val connectorSnapshot = ConnectorStore(context).snapshot()
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    AccountBadge("GitHub", if (connectorSnapshot.githubConfigured) "متصل" else "قطع", connectorSnapshot.githubConfigured, modifier = Modifier.weight(1f))
-                    AccountBadge("HuggingFace", if (connectorSnapshot.huggingFaceConfigured) "متصل" else "قطع", connectorSnapshot.huggingFaceConfigured, modifier = Modifier.weight(1f))
-                    AccountBadge("Gmail", "خارجی", false, modifier = Modifier.weight(1f))
-                }
-                Text(
-                    text = "فوکو با همین توکن‌ها به ربات وصل می‌شود. برای اتصال یا بررسی، تب «ابزارها» یا دکمه (+) در صفحه گفتگو.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
         // Accessibility Service Switch Card
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -433,45 +447,25 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onBackground
         )
 
-        // Hugging Face
+        // Google Gemini — the only free key FOKO needs
         ApiKeyField(
-            title = "توکن Hugging Face (کیوون Qwen 2.5, DeepSeek)",
-            hint = "huggingface.co/settings/tokens",
-            value = hfKey,
-            onValueChange = { hfKey = it }
-        )
-
-        // xAI Grok
-        ApiKeyField(
-            title = "کلید xAI Grok (گروک رسمی console.x.ai)",
-            hint = "console.x.ai/team/... -> API Keys",
-            value = grokKey,
-            onValueChange = { grokKey = it }
-        )
-
-        // OpenRouter
-        ApiKeyField(
-            title = "کلید OpenRouter (مدل‌های رایگان و باز)",
-            hint = "openrouter.ai/keys",
-            value = orKey,
-            onValueChange = { orKey = it }
-        )
-
-        // Groq
-        ApiKeyField(
-            title = "کلید Groq (Llama 3.3 سریع)",
-            hint = "console.groq.com",
-            value = groqKey,
-            onValueChange = { groqKey = it }
-        )
-
-        // Google Gemini
-        ApiKeyField(
-            title = "کلید Google Gemini (اختیاری)",
+            title = "کلید Google Gemini (رایگان)",
             hint = "aistudio.google.com",
             value = gemKey,
             onValueChange = { gemKey = it }
         )
+        Text(
+            text = "با همین کلید، مدل‌های Gemini در پنجره انتخاب مدل فعال می‌شوند.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (uiState.snapshot.huggingFaceConfigured || uiState.snapshot.xaiGrokConfigured ||
+            uiState.snapshot.openRouterConfigured || uiState.snapshot.groqConfigured
+        ) {
+            TextButton(onClick = { viewModel.clearOtherKeys() }) {
+                Text("پاک کردن کلیدهای دیگر (Hugging Face / xAI / OpenRouter / Groq)", color = MaterialTheme.colorScheme.error)
+            }
+        }
 
         // Save Button
         Button(
@@ -496,6 +490,150 @@ fun SettingsScreen(
             Icon(Icons.Default.Check, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("ذخیره و فعال‌سازی کلیدها", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+
+        // ---------------------------------------------------------------
+        // 9Router — the GitHub project that rotates free models for us.
+        // Point FOKO at a running 9Router server (its OpenAI-compatible API).
+        // ---------------------------------------------------------------
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Layers, contentDescription = null, tint = PersianTurquoise)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "9Router — مسیریاب خودکار مدل‌های رایگان",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = "9Router (github.com/decolua/9router) یک سرور است که چند سرویس رایگان را پشت یک آدرس جمع می‌کند؛ هر مدل به سقف خورد، خودش مدل بعدی را فعال می‌کند. آن را روی کامپیوتر یا سرور خودت اجرا کن و آدرسش را اینجا بده.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = nineRouterBase,
+                    onValueChange = { nineRouterBase = it },
+                    label = { Text("آدرس سرور 9Router") },
+                    placeholder = { Text(ApiKeyStore.DEFAULT_9ROUTER_BASE_URL) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                ApiKeyField(
+                    title = "کلید API 9Router (اگر روی سرورت گذاشته‌ای)",
+                    hint = "Dashboard → API Keys",
+                    value = nineRouterKey,
+                    onValueChange = { nineRouterKey = it }
+                )
+                OutlinedTextField(
+                    value = nineRouterModel,
+                    onValueChange = { nineRouterModel = it },
+                    label = { Text("مدل یا نام Combo (مثلاً free-combo)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("اتصال فعال باشد", style = MaterialTheme.typography.bodyMedium)
+                    Switch(
+                        checked = uiState.nineRouterEnabled,
+                        onCheckedChange = { viewModel.setNineRouterEnabled(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = PersianTurquoise)
+                    )
+                }
+                Button(
+                    onClick = {
+                        viewModel.saveNineRouter(nineRouterBase, nineRouterKey, nineRouterModel, true)
+                        Toast.makeText(context, "9Router ذخیره شد و به ربات وصل شد", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
+                ) {
+                    Text("ذخیره و اتصال به ربات", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Manual provider: any site that gave you a key, with its own
+        // base URL and model, typed by hand.
+        // ---------------------------------------------------------------
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Code, contentDescription = null, tint = PersianTurquoise)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "افزودن سایت دلخواه (کلید دستی)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = "اگر سایتی به تو کلید داده، نامش و آدرس API و نام مدلش را دستی اینجا بنویس؛ فوکو با همان کلید به آن سایت وصل می‌شود.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = customLabel,
+                    onValueChange = { customLabel = it },
+                    label = { Text("نام سایت") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = customBase,
+                    onValueChange = { customBase = it },
+                    label = { Text("آدرس API (Base URL)") },
+                    placeholder = { Text("https://example.com/v1") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                ApiKeyField(
+                    title = "کلید API",
+                    hint = "کلید همان سایت",
+                    value = customKey,
+                    onValueChange = { customKey = it }
+                )
+                OutlinedTextField(
+                    value = customModel,
+                    onValueChange = { customModel = it },
+                    label = { Text("نام مدل") },
+                    placeholder = { Text("gpt-4o-mini") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Button(
+                    onClick = {
+                        viewModel.saveCustom(customLabel, customBase, customKey, customModel)
+                        Toast.makeText(context, "سایت دلخواه ذخیره و به ربات وصل شد", Toast.LENGTH_SHORT).show()
+                    },
+                    enabled = customBase.isNotBlank() && customModel.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
+                ) {
+                    Text("ذخیره و اتصال به ربات", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))

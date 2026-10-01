@@ -66,6 +66,8 @@ data class ChatUiState(
     val selectedModel: AiModelOption = AiModelOption.FLASH,
     val selectedCatalogModel: CatalogModel = AiModelCatalog.defaultModel(),
     val isAutoMode: Boolean = true,
+    /** Which model Auto is currently using — surfaced next to the Auto pill. */
+    val autoModelLabel: String = "",
     val selectedPersona: SystemPersona = SystemPersona.GENERAL,
     val isThinkingModeEnabled: Boolean = false,
     val isGoogleSearchEnabled: Boolean = false,
@@ -441,7 +443,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 keyStore = keyStore,
                 personaPrompt = _uiState.value.selectedPersona.systemPrompt,
                 enableThinkingMode = _uiState.value.isThinkingModeEnabled,
-                enableGoogleSearch = _uiState.value.isGoogleSearchEnabled
+                enableGoogleSearch = _uiState.value.isGoogleSearchEnabled,
+                rotationChain = if (_uiState.value.isAutoMode) AiRouter.rotationChain(keyStore) else emptyList()
             ) { event ->
                 when (event) {
                     is AgentEvent.Status -> {
@@ -450,6 +453,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     is AgentEvent.ToolUsed -> {
                         _uiState.value = _uiState.value.copy(
                             statusMessage = "اجرای ابزار ${event.name}..."
+                        )
+                    }
+                    is AgentEvent.ModelSwitched -> {
+                        // Shown next to the Auto pill: which bot is answering right now.
+                        _uiState.value = _uiState.value.copy(
+                            autoModelLabel = event.model.title,
+                            selectedCatalogModel = event.model
                         )
                     }
                     is AgentEvent.Failure -> {

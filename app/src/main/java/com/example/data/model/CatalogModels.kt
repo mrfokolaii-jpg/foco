@@ -6,7 +6,13 @@ enum class AiProviderKind(val persianTitle: String, val badgeColorHex: Long) {
     XAI_GROK("xAI Grok", 0xFF1E293B),
     OPENROUTER("OpenRouter", 0xFF6366F1),
     GROQ("Groq", 0xFFEA580C),
-    GEMINI("Google Gemini", 0xFF2563EB)
+    GEMINI("Google Gemini", 0xFF2563EB),
+
+    /** 9Router — self-hosted OpenAI-compatible router that rotates free models for us. */
+    NINE_ROUTER("9Router", 0xFF0EA5E9),
+
+    /** Anything the user wires up by hand: label + base URL + key + model. */
+    CUSTOM("کلید دستی", 0xFF8B5CF6)
 }
 
 enum class ModelCapability {
@@ -29,12 +35,33 @@ data class CatalogModel(
 object AiModelCatalog {
     val builtinFree = CatalogModel(
         id = "foko-free",
-        title = "هوش مصنوعی رایگان و عمومی فوکو",
-        subtitle = "پاسخگویی هوشمند و سریع بدون نیاز به وارد کردن هیچ کلیدی",
+        title = "فوکو پایه (بدون کلید)",
+        subtitle = "پاسخ‌گویی سریع وقتی هیچ کلید یا مسیریابی وصل نیست",
         provider = AiProviderKind.BUILTIN_FREE,
         apiModelId = "openai-large",
-        badge = "رایگان و فعال",
+        badge = "پایه",
+        isRecommended = false
+    )
+
+    /** 9Router entry point. [modelId] is a 9Router model slug or a combo name. */
+    fun nineRouter(modelId: String): CatalogModel = CatalogModel(
+        id = "9router",
+        title = if (modelId.isBlank()) "9Router" else modelId,
+        subtitle = "مسیریاب خودکار: هر مدل به سقف خورد، مدل بعدی خودش فعال می‌شود",
+        provider = AiProviderKind.NINE_ROUTER,
+        apiModelId = modelId.ifBlank { "auto" },
+        badge = "9Router",
         isRecommended = true
+    )
+
+    /** User-defined OpenAI-compatible provider (site + key + model typed by hand). */
+    fun custom(label: String, modelId: String): CatalogModel = CatalogModel(
+        id = "custom",
+        title = label.ifBlank { "کلید دستی" },
+        subtitle = "سرویس دلخواه شما با آدرس، کلید و مدل دستی",
+        provider = AiProviderKind.CUSTOM,
+        apiModelId = modelId.ifBlank { "gpt-4o-mini" },
+        badge = "دستی"
     )
 
     val hfQwen25 = CatalogModel(

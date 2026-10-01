@@ -117,12 +117,14 @@ object OpenAiCompatProvider {
             if (text.isBlank()) {
                 return@withContext ApiResult.Error("پاسخی از مدل هوش مصنوعی دریافت نشد.")
             }
+            // Routers (9Router, gateways) report the model that actually answered in `model`.
+            val servedBy = json.optString("model").takeIf { it.isNotBlank() } ?: catalogId
             ApiResult.Success(
                 ChatApiResponse(
                     replyText = text,
                     thinkingText = null,
                     searchSources = emptyList(),
-                    modelUsed = catalogId
+                    modelUsed = servedBy
                 )
             )
         } catch (e: Exception) {

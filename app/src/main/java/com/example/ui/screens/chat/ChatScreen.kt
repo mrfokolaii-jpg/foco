@@ -124,6 +124,7 @@ import com.example.data.connectors.GitHubConnector
 import com.example.data.connectors.HuggingFaceConnector
 import com.example.data.local.ChatConversationEntity
 import com.example.data.model.AiModelCatalog
+import com.example.data.model.AiProviderKind
 import com.example.data.model.CatalogModel
 import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
@@ -647,7 +648,9 @@ fun ChatScreen(
             ModernChatInputBar(
                 inputText = inputText,
                 onTextChanged = { inputText = it },
-                activeModelLabel = if (uiState.isAutoMode) "Auto" else uiState.selectedCatalogModel.badge,
+                activeModelLabel = if (uiState.isAutoMode) {
+                    if (uiState.autoModelLabel.isBlank()) "Auto" else "Auto · ${uiState.autoModelLabel}"
+                } else uiState.selectedCatalogModel.badge,
                 isLoading = uiState.isLoading,
                 isListening = isListeningInBar,
                 hasImages = uiState.attachedImages.isNotEmpty(),
@@ -693,41 +696,46 @@ fun ChatScreen(
                     fontWeight = FontWeight.Bold
                 )
 
-                // 1. Auto Option (Always Recommended)
+                // 1. Auto — routed through 9Router whenever it is connected.
+                val nineRouterOn = snapshot.nineRouterConfigured
                 ModelOptionCard(
-                    title = "Auto (حالت خودکار و بهینه)",
-                    description = "انتخاب هوشمند سریع‌ترین و بهترین مدل از میان سرویس‌های فعال شما",
-                    tag = "پیشنهادی فوکو",
+                    title = "Auto (حالت خودکار)",
+                    description = if (nineRouterOn) {
+                        "مسیریابی از طریق 9Router: هر مدل به سقف خورد، مدل بعدی خودکار فعال می‌شود"
+                    } else {
+                        "به‌ترتیب از سرویس‌های فعال تو استفاده می‌کند و روی محدودیت، مدل را خودکار عوض می‌کند"
+                    },
+                    tag = if (nineRouterOn) "9Router" else "خودکار",
                     isSelected = uiState.isAutoMode,
                     onClick = {
                         viewModel.enableAutoMode()
                         showModelSelectorSheet = false
                     }
                 )
+                // Live: which bot is answering right now, and when Auto hops to the next one.
+                if (uiState.isAutoMode) {
+                    Text(
+                        text = "الان با این مدل کار می‌کنی: " + uiState.autoModelLabel.ifBlank { "—" },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = PersianTurquoise,
+                        modifier = Modifier.padding(start = 6.dp)
+                    )
+                }
 
-                // 2. Builtin Free
-                val isFreeSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == AiModelCatalog.builtinFree.id
-                ModelOptionCard(
-                    title = AiModelCatalog.builtinFree.title,
-                    description = AiModelCatalog.builtinFree.subtitle,
-                    tag = AiModelCatalog.builtinFree.badge,
-                    isSelected = isFreeSelected,
-                    onClick = {
-                        viewModel.selectCatalogModel(AiModelCatalog.builtinFree)
-                        showModelSelectorSheet = false
-                    }
-                )
-
-                if (activeModels.isNotEmpty()) {
+                val nonGeminiActive = activeModels.filter {
+                    it.id != AiModelCatalog.builtinFree.id && it.provider != AiProviderKind.GEMINI
+                }
+                if (nonGeminiActive.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "مدل‌های فعال شما بر اساس کلیدها (${activeModels.size} مدل):",
+                        text = "مدل‌های فعال تو (${nonGeminiActive.size} مدل):",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = PersianTurquoise
                     )
 
-                    activeModels.filter { it.id != AiModelCatalog.builtinFree.id }.forEach { model ->
+                    nonGeminiActive.forEach { model ->
                         val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
                         ModelOptionCard(
                             title = model.title,
@@ -740,6 +748,34 @@ fun ChatScreen(
                             }
                         )
                     }
+                }
+
+                // Bottom: what the free Gemini key unlocks.
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (snapshot.geminiConfigured) {
+                        "با کلید رایگان Gemini این مدل‌ها وصل می‌شوند:"
+                    } else {
+                        "با کلید رایگان Gemini این مدل‌ها وصل می‌شوند (کلید وارد نشده):"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = PersianTurquoise
+                )
+                AiModelCatalog.modelsForProvider(AiProviderKind.GEMINI).forEach { model ->
+                    val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
+                    ModelOptionCard(
+                        title = model.title,
+                        description = model.subtitle,
+                        tag = if (snapshot.geminiConfigured) model.badge else "کلید لازم است",
+                        isSelected = isSelected,
+                        onClick = {
+                            if (snapshot.geminiConfigured) {
+                                viewModel.selectCatalogModel(model)
+                                showModelSelectorSheet = false
+                            }
+                        }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
