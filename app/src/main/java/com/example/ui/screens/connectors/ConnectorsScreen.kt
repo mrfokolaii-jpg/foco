@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -87,7 +86,7 @@ fun ConnectorsScreen(
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = "فوکو را به گیت‌هاب، Hugging Face و گوگل درایو وصل کن و ویجت شناور را روشن کن.",
+            text = "فوکو را به گیت‌هاب وصل کن، وضعیت Hugging Face را ببین و ویجت شناور را روشن کن.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -177,9 +176,9 @@ fun ConnectorsScreen(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(Icons.Default.Hub, "GitHub — ذخیره و ارتقای دانش")
+                SectionHeader(Icons.Default.Hub, "GitHub — ذخیره، ارتقای دانش و کامپایل")
                 Text(
-                    text = "یک توکن با دسترسی repo بساز و اینجا وارد کن. فوکو دانش جدید را در مخزن تو بارگذاری می‌کند.",
+                    text = "این توکن مستقیم به خودِ ربات وصل می‌شود، نه فقط به این صفحه. فوکو با آن فایل می‌خواند و می‌نویسد، پوشه دانش می‌سازد، پروژه را بارگذاری می‌کند و اپلیکیشن را کامپایل می‌کند. توکن باید دسترسی repo و workflow داشته باشد.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -213,13 +212,18 @@ fun ConnectorsScreen(
                         onClick = { viewModel.saveGitHub(); viewModel.testGitHub() },
                         colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
                         shape = RoundedCornerShape(10.dp)
-                    ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    ) { Text("ذخیره و اتصال به ربات", color = Color.Black, fontWeight = FontWeight.Bold) }
                 }
                 StatusLine(state.githubStatus)
+                Text(
+                    text = "وقتی اینجا «متصل ✓» شد، ربات هم همان لحظه به گیت‌هاب دسترسی دارد؛ لازم نیست جای دیگری توکن بدهی.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
 
-        // Hugging Face
+        // Hugging Face — connected from the chat page, so only a status check lives here.
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -227,50 +231,30 @@ fun ConnectorsScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader(Icons.Default.Cloud, "Hugging Face — مدل‌ها و ابزارها")
-                SecretField("توکن Hugging Face (hf_...)", state.hfToken) { viewModel.update { s -> s.copy(hfToken = it) } }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { viewModel.saveHuggingFace(); viewModel.testHuggingFace() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
-                }
-                StatusLine(state.hfStatus)
-            }
-        }
-
-        // Google Drive
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(Icons.Default.Lock, "Google Drive — ذخیره فایل‌ها")
                 Text(
-                    text = "یا یک Access Token کوتاه‌مدت وارد کن، یا شناسه/رمز کلاینت و Refresh Token بده تا فوکو خودش توکن را تازه کند.",
+                    text = "اتصال از صفحه گفتگو انجام می‌شود: دکمه (+) کنار Auto را بزن و کلید Hugging Face را روشن کن. همان توکن به خودِ ربات وصل می‌شود و فوکو با آن مدل جستجو می‌کند و مدل را اجرا می‌کند.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                OutlinedTextField(
-                    value = state.driveClientId,
-                    onValueChange = { viewModel.update { s -> s.copy(driveClientId = it) } },
-                    label = { Text("Client ID") },
-                    singleLine = true,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-                SecretField("Client Secret", state.driveClientSecret) { viewModel.update { s -> s.copy(driveClientSecret = it) } }
-                SecretField("Refresh Token", state.driveRefreshToken) { viewModel.update { s -> s.copy(driveRefreshToken = it) } }
-                SecretField("Access Token (اختیاری)", state.driveAccessToken) { viewModel.update { s -> s.copy(driveAccessToken = it) } }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (state.hfToken.isNotBlank()) "متصل به ربات ✓" else "وصل نشده",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (state.hfToken.isNotBlank()) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Button(
-                        onClick = { viewModel.saveDrive(); viewModel.testDrive() },
+                        onClick = { viewModel.testHuggingFace() },
+                        enabled = state.hfToken.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
                         shape = RoundedCornerShape(10.dp)
-                    ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    ) { Text("بررسی اتصال", color = Color.Black, fontWeight = FontWeight.Bold) }
                 }
-                StatusLine(state.driveStatus)
+                StatusLine(state.hfStatus)
             }
         }
 
@@ -283,7 +267,7 @@ fun ConnectorsScreen(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader(Icons.Default.Refresh, "ارتقای خودکار (Self-Upgrade)")
                 Text(
-                    text = "وقتی فوکو چیزی را نداند، خودش در وب جستجو می‌کند، یاد می‌گیرد و دانش تازه را در گیت‌هاب تو بارگذاری می‌کند.",
+                    text = "وقتی فوکو دانش یا ابزاری را نداشته باشد: خودش در وب جستجو می‌کند، یک پوشه دانش داخل مخزن گیت‌هاب تو می‌سازد و اطلاعات را داخلش بارگذاری می‌کند. اگر پروژه‌ای پیدا کند که برای خودِ اپلیکیشن مفید باشد، آن را در مخزن می‌گذارد، به پروژه وصل می‌کند و با گیت‌هاب کامپایلش می‌کند؛ بعد نتیجه کامپایل و لینک خروجی را به تو گزارش می‌دهد که «اپلیکیشن جدید آماده شد».",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

@@ -752,8 +752,7 @@ fun ChatScreen(
         val connectedCount = listOf(
             connectorSnapshot.githubConfigured,
             connectorSnapshot.huggingFaceConfigured,
-            connectorSnapshot.cloudflareConfigured,
-            connectorSnapshot.driveConfigured
+            connectorSnapshot.cloudflareConfigured
         ).count { it }
 
         ModalBottomSheet(
@@ -781,7 +780,7 @@ fun ChatScreen(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Text(
-                            text = "$connectedCount از ۴ متصل",
+                            text = "$connectedCount از ۳ متصل",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = if (connectedCount > 0) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -831,12 +830,6 @@ fun ChatScreen(
                     title = "Cloudflare",
                     description = "مدیریت DNS، Workers و سرویس‌های لبه شبکه",
                     isConnected = connectorSnapshot.cloudflareConfigured
-                )
-                PluginOptionRow(
-                    emoji = "📁",
-                    title = "Google Drive",
-                    description = "آپلود، دانلود و لیست فایل‌های ذخیره‌شده",
-                    isConnected = connectorSnapshot.driveConfigured
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))

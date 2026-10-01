@@ -173,11 +173,111 @@ object GitHubConnector {
                 val out = mutableListOf<String>()
                 for (i in 0 until minOf(items.length(), 10)) {
                     val o = items.getJSONObject(i)
-                    out.add("${o.optString("repository")} :: ${o.optString("path")}")
+                    val repoName = o.optJSONObject("repository")?.optString("full_name").orEmpty()
+                    out.add("$repoName :: ${o.optString("path")}")
                 }
                 ConnectorResult.Ok(out)
             } catch (e: Exception) {
                 ConnectorResult.Err("جستجوی کد ناموفق بود: ${e.localizedMessage}")
             }
         }
+
+    // ---- GitHub Actions: the self-upgrade build pipeline ---------------------
+
+    /** One workflow run, as reported by the Actions API. */
+    data class WorkflowRun(
+        val id: Long,
+        val status: String,
+        val conclusion: String,
+        val htmlUrl: String,
+        val createdAt: String
+    )
+
+    /**
+     * Kicks off a workflow (`.github/workflows/<workflowFile>`) on [ref].
+     * Needs a token with the `workflow` scope.
+     */
+    suspend fun dispatchWorkflow(
+        token: String,
+        owner: String,
+        repo: String,
+        workflowFile: String,
+        ref: String
+    ): ConnectorResult<String> = withContext(Dispatchers.IO) {
+        if (token.isBlank()) return@withContext ConnectorResult.Err("توکن گیت‌هاب وارد نشده است.")
+        try {
+            val payload = JSONObject().apply { put("ref", ref) }
+            val res = client.newCall(
+                request("/repos/$owner/$repo/actions/workflows/$workflowFile/dispatches", token)
+                    .post(payload.toString().toRequestBody(JSON))
+                    .build()
+            ).execute()
+            val body = res.body?.string().orEmpty()
+            if (res.code != 204 && !res.isSuccessful) {
+                return@withContext ConnectorResult.Err(mapError(res.code, body), res.code)
+            }
+            ConnectorResult.Ok("بیلد روی شاخه $ref شروع شد.")
+        } catch (e: Exception) {
+            ConnectorResult.Err("شروع بیلد در گیت‌هاب ناموفق بود: ${e.localizedMessage}")
+        }
+    }
+
+    /** Most recent run of a workflow, optionally limited to one branch. */
+    suspend fun latestWorkflowRun(
+        token: String,
+        owner: String,
+        repo: String,
+        workflowFile: String,
+        branch: String
+    ): ConnectorResult<WorkflowRun?> = withContext(Dispatchers.IO) {
+        if (token.isBlank()) return@withContext ConnectorResult.Err("توکن گیت‌هاب وارد نشده است.")
+        try {
+            val url = "$API/repos/$owner/$repo/actions/workflows/$workflowFile/runs?per_page=1" +
+                if (branch.isBlank()) "" else "&branch=${URLEncoder.encode(branch, "UTF-8")}"
+            val res = client.newCall(request("", token).url(url).get().build()).execute()
+            val body = res.body?.string().orEmpty()
+            if (!res.isSuccessful) return@withContext ConnectorResult.Err(mapError(res.code, body), res.code)
+            val runs = JSONObject(body).optJSONArray("workflow_runs") ?: JSONArray()
+            if (runs.length() == 0) return@withContext ConnectorResult.Ok(null)
+            val o = runs.getJSONObject(0)
+            ConnectorResult.Ok(
+                WorkflowRun(
+                    id = o.optLong("id"),
+                    status = o.optString("status"),
+                    conclusion = o.optString("conclusion"),
+                    htmlUrl = o.optString("html_url"),
+                    createdAt = o.optString("created_at")
+                )
+            )
+        } catch (e: Exception) {
+            ConnectorResult.Err("خواندن وضعیت بیلد ناموفق بود: ${e.localizedMessage}")
+        }
+    }
+
+    /** Artifacts produced by a finished run (usually the APK). */
+    suspend fun listRunArtifacts(
+        token: String,
+        owner: String,
+        repo: String,
+        runId: Long
+    ): ConnectorResult<List<String>> = withContext(Dispatchers.IO) {
+        if (token.isBlank()) return@withContext ConnectorResult.Err("توکن گیت‌هاب وارد نشده است.")
+        try {
+            val res = client.newCall(
+                request("/repos/$owner/$repo/actions/runs/$runId/artifacts", token).get().build()
+            ).execute()
+            val body = res.body?.string().orEmpty()
+            if (!res.isSuccessful) return@withContext ConnectorResult.Err(mapError(res.code, body), res.code)
+            val arr = JSONObject(body).optJSONArray("artifacts") ?: JSONArray()
+            val out = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val sizeMb = o.optLong("size_in_bytes") / 1_048_576.0
+                out.add("${o.optString("name")} (%.2fMB)".format(sizeMb))
+            }
+            ConnectorResult.Ok(out)
+        } catch (e: Exception) {
+            ConnectorResult.Err("خواندن خروجی بیلد ناموفق بود: ${e.localizedMessage}")
+        }
+    }
 }

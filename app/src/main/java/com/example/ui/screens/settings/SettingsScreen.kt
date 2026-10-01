@@ -324,11 +324,10 @@ fun SettingsScreen(
                 ) {
                     AccountBadge("GitHub", if (connectorSnapshot.githubConfigured) "متصل" else "قطع", connectorSnapshot.githubConfigured, modifier = Modifier.weight(1f))
                     AccountBadge("HuggingFace", if (connectorSnapshot.huggingFaceConfigured) "متصل" else "قطع", connectorSnapshot.huggingFaceConfigured, modifier = Modifier.weight(1f))
-                    AccountBadge("Google Drive", if (connectorSnapshot.driveConfigured) "متصل" else "قطع", connectorSnapshot.driveConfigured, modifier = Modifier.weight(1f))
                     AccountBadge("Gmail", "خارجی", false, modifier = Modifier.weight(1f))
                 }
                 Text(
-                    text = "برای اتصال واقعی ابزارها به تب «ابزارها» بروید.",
+                    text = "فوکو با همین توکن‌ها به ربات وصل می‌شود. برای اتصال یا بررسی، تب «ابزارها» یا دکمه (+) در صفحه گفتگو.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
