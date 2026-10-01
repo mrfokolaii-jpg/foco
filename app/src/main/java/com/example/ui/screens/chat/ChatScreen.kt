@@ -83,6 +83,8 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -115,13 +117,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import com.example.data.connectors.ConnectorResult
 import com.example.data.connectors.ConnectorSnapshot
 import com.example.data.connectors.ConnectorStore
+import com.example.data.connectors.GitHubConnector
+import com.example.data.connectors.HuggingFaceConnector
 import com.example.data.local.ChatConversationEntity
 import com.example.data.model.AiModelCatalog
 import com.example.data.model.CatalogModel
 import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
+import com.example.ui.screens.connectors.ConnectorAuthDialog
+import com.example.ui.screens.connectors.ConnectorAuthTarget
 import com.example.ui.theme.PersianTurquoise
 import com.example.ui.theme.PersianViolet
 import kotlinx.coroutines.launch
@@ -143,6 +150,7 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     var showModelSelectorSheet by remember { mutableStateOf(false) }
     var showPluginsSheet by remember { mutableStateOf(false) }
+    var connectorAuthTarget by remember { mutableStateOf<ConnectorAuthTarget?>(null) }
     var showTwoWayVoiceModal by remember { mutableStateOf(false) }
     var isListeningInBar by remember { mutableStateOf(false) }
 
@@ -273,6 +281,64 @@ fun ChatScreen(
         if (uiState.messages.isNotEmpty()) {
             listState.animateScrollToItem(uiState.messages.size - 1)
         }
+    }
+
+    /** Verifies the token the user just produced and, if it works, connects the plugin. */
+    fun connectConnector(target: ConnectorAuthTarget, rawToken: String) {
+        val token = rawToken.trim()
+        if (token.isBlank()) {
+            connectorAuthTarget = null
+            return
+        }
+        scope.launch {
+            var verified = false
+            var who = ""
+            when (target.id) {
+                ConnectorAuthTarget.GITHUB.id -> {
+                    when (val result = GitHubConnector.whoAmI(token)) {
+                        is ConnectorResult.Ok -> { verified = true; who = result.value }
+                        is ConnectorResult.Err -> who = result.message
+                    }
+                    if (verified) {
+                        connectorStore.setGitHub(
+                            token = token,
+                            owner = connectorStore.githubOwner(),
+                            repo = connectorStore.githubRepo(),
+                            branch = connectorStore.githubBranch()
+                        )
+                    }
+                }
+                ConnectorAuthTarget.HUGGING_FACE.id -> {
+                    when (val result = HuggingFaceConnector.whoAmI(token)) {
+                        is ConnectorResult.Ok -> { verified = true; who = result.value }
+                        is ConnectorResult.Err -> who = result.message
+                    }
+                    if (verified) connectorStore.setHfToken(token)
+                }
+            }
+            connectorSnapshot = connectorStore.snapshot()
+            connectorAuthTarget = null
+            Toast.makeText(
+                context,
+                if (verified) "${target.title} متصل شد ✓  ($who)" else "اتصال ناموفق — $who",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    /** Unticking the checkbox removes the stored credentials for that plugin. */
+    fun disconnectConnector(target: ConnectorAuthTarget) {
+        when (target.id) {
+            ConnectorAuthTarget.GITHUB.id -> connectorStore.setGitHub(
+                token = "",
+                owner = connectorStore.githubOwner(),
+                repo = connectorStore.githubRepo(),
+                branch = connectorStore.githubBranch()
+            )
+            ConnectorAuthTarget.HUGGING_FACE.id -> connectorStore.setHfToken("")
+        }
+        connectorSnapshot = connectorStore.snapshot()
+        Toast.makeText(context, "${target.title} قطع شد", Toast.LENGTH_SHORT).show()
     }
 
     ModalNavigationDrawer(
@@ -724,19 +790,41 @@ fun ChatScreen(
                     }
                 }
 
+                Text(
+                    text = "تیک هر سرویس را بزن؛ صفحه ورود همان سایت باز می‌شود، وارد حساب خودت شو و فوکو خودکار وصل می‌شود.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
                 Spacer(modifier = Modifier.height(2.dp))
 
                 PluginOptionRow(
                     emoji = "🐙",
                     title = "GitHub",
                     description = "خواندن/نوشتن فایل، جستجوی کد و کامیت دانش در مخزن",
-                    isConnected = connectorSnapshot.githubConfigured
+                    isConnected = connectorSnapshot.githubConfigured,
+                    onToggle = { wanted ->
+                        if (wanted) {
+                            showPluginsSheet = false
+                            connectorAuthTarget = ConnectorAuthTarget.GITHUB
+                        } else {
+                            disconnectConnector(ConnectorAuthTarget.GITHUB)
+                        }
+                    }
                 )
                 PluginOptionRow(
                     emoji = "🤗",
                     title = "Hugging Face",
                     description = "جستجو و استفاده از مدل‌ها و سرویس‌های هوش مصنوعی",
-                    isConnected = connectorSnapshot.huggingFaceConfigured
+                    isConnected = connectorSnapshot.huggingFaceConfigured,
+                    onToggle = { wanted ->
+                        if (wanted) {
+                            showPluginsSheet = false
+                            connectorAuthTarget = ConnectorAuthTarget.HUGGING_FACE
+                        } else {
+                            disconnectConnector(ConnectorAuthTarget.HUGGING_FACE)
+                        }
+                    }
                 )
                 PluginOptionRow(
                     emoji = "☁️",
@@ -770,6 +858,15 @@ fun ChatScreen(
         }
     }
 
+    // In-app connector login (GitHub / Hugging Face) — opened from the plugins (+ ) sheet
+    connectorAuthTarget?.let { target ->
+        ConnectorAuthDialog(
+            target = target,
+            onDismiss = { connectorAuthTarget = null },
+            onTokenDetected = { token -> connectConnector(target, token) }
+        )
+    }
+
     // Two-Way Interactive Voice Modal (JARVIS 1 Voice Engine)
     if (showTwoWayVoiceModal) {
         TwoWayVoiceModal(
@@ -789,7 +886,8 @@ fun PluginOptionRow(
     emoji: String,
     title: String,
     description: String,
-    isConnected: Boolean
+    isConnected: Boolean,
+    onToggle: ((Boolean) -> Unit)? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -818,17 +916,26 @@ fun PluginOptionRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Surface(
-                color = if (isConnected) PersianTurquoise.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    text = if (isConnected) "متصل ✓" else "قطع",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isConnected) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            if (onToggle != null) {
+                // Ticking this opens the provider's login page inside FOKO and connects it.
+                Switch(
+                    checked = isConnected,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(checkedTrackColor = PersianTurquoise)
                 )
+            } else {
+                Surface(
+                    color = if (isConnected) PersianTurquoise.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = if (isConnected) "متصل ✓" else "قطع",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isConnected) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
             }
         }
     }
@@ -851,17 +958,30 @@ fun ModernChatInputBar(
     onPluginsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = modifier.padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 0.dp),
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 6.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    // Docked composer: sits flush on top of the bottom navigation bar (no gap).
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
     ) {
+        // Hairline seam that separates the thread from the composer
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+        )
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 3.dp
+        ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 4.dp),
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Attach file button (zip, documents, any file)
@@ -989,6 +1109,7 @@ fun ModernChatInputBar(
                     modifier = Modifier.size(18.dp)
                 )
             }
+        }
         }
     }
 }

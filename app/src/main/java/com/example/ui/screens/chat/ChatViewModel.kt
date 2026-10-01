@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.agent.AgentEngine
 import com.example.data.agent.AgentEvent
+import com.example.data.agent.FokoTools
 import com.example.data.local.ApiKeyStore
 import com.example.data.local.AppDatabase
 import com.example.data.local.ChatConversationEntity
@@ -38,6 +39,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.UUID
 
 data class AttachedImage(
@@ -51,7 +53,10 @@ data class AttachedFile(
     val uri: Uri,
     val name: String,
     val sizeBytes: Long,
-    val textContent: String? = null
+    val textContent: String? = null,
+    /** File name inside the FOKO storage folder, so the agent can read the real file. */
+    val localPath: String? = null,
+    val mimeType: String = ""
 )
 
 data class ChatUiState(
@@ -243,6 +248,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         "js", "ts", "css", "log", "yml", "yaml", "kts", "gradle", "pro", "sql", "sh"
     )
 
+    /**
+     * Text files up to this size are inlined into the prompt. Anything bigger is still
+     * accepted — it gets copied into the FOKO folder and read by the agent on demand.
+     */
+    private val inlineTextLimitBytes = 2_000_000L
+    private val inlineTextChars = 60_000
+
+    /** Hard ceiling for copying an attachment into local storage (2 GB). */
+    private val copyToStorageLimitBytes = 2L * 1024 * 1024 * 1024
+
     fun attachFiles(context: Context, uris: List<Uri>) {
         if (uris.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -250,7 +265,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             for (uri in uris) {
                 try {
                     var name = "file"
-                    var size = 0L
+                    var size = -1L
                     context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                         val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                         val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
@@ -262,14 +277,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     val mime = context.contentResolver.getType(uri).orEmpty().lowercase()
                     val ext = name.substringAfterLast('.', "").lowercase()
                     val isTextLike = mime.startsWith("text/") || mime.contains("json") || ext in textFileExtensions
-                    val text = if (isTextLike && size in 1..500_000) {
+
+                    val text = if (isTextLike && size in 1..inlineTextLimitBytes) {
                         try {
                             context.contentResolver.openInputStream(uri)?.bufferedReader()?.use {
-                                it.readText().take(30_000)
+                                it.readText().take(inlineTextChars)
                             }
                         } catch (_: Exception) { null }
                     } else null
-                    newFiles.add(AttachedFile(uri = uri, name = name, sizeBytes = size, textContent = text))
+
+                    // Save the real bytes (video / zip / big text / any file) into /FOKO
+                    // so the agent can open it with read_saved_file.
+                    val stored = copyAttachmentToFoko(context, uri, name, size)
+
+                    newFiles.add(
+                        AttachedFile(
+                            uri = uri,
+                            name = name,
+                            sizeBytes = if (size > 0) size else (stored?.length() ?: 0L),
+                            textContent = text,
+                            localPath = stored?.name,
+                            mimeType = mime
+                        )
+                    )
                 } catch (_: Exception) {}
             }
             _uiState.value = _uiState.value.copy(
@@ -277,6 +307,32 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 statusMessage = if (newFiles.isEmpty()) "خواندن فایل ناموفق بود" else null
             )
         }
+    }
+
+    /** Streams any attachment (video, zip, archive, large text...) into the FOKO folder. */
+    private fun copyAttachmentToFoko(context: Context, uri: Uri, name: String, declaredSize: Long): File? {
+        return try {
+            // Never try to pull a multi-gigabyte file onto internal storage.
+            if (declaredSize > copyToStorageLimitBytes) return null
+            val dir = FokoTools.fokoStorageDir(context)
+            val safeName = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "file" }
+            val target = File(dir, safeName)
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                target.outputStream().use { output ->
+                    input.copyTo(output, DEFAULT_BUFFER_SIZE)
+                }
+            } ?: return null
+            target
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun formatBytes(bytes: Long): String = when {
+        bytes >= 1_073_741_824L -> "%.2fGB".format(bytes / 1_073_741_824f)
+        bytes >= 1_048_576L -> "%.1fMB".format(bytes / 1_048_576f)
+        bytes >= 1024L -> "${bytes / 1024}KB"
+        else -> "${bytes}B"
     }
 
     fun removeAttachedFile(id: String) {
@@ -297,11 +353,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Build a context block from attached files so the agent can work with them.
         val filesBlock = if (currentFiles.isEmpty()) "" else currentFiles.joinToString("\n\n") { f ->
-            val sizeKb = (f.sizeBytes / 1024).coerceAtLeast(1)
-            if (f.textContent != null) {
-                "📎 محتوای فایل پیوست «${f.name}» (${sizeKb}KB):\n```\n${f.textContent}\n```"
-            } else {
-                "📎 فایل پیوست «${f.name}» (${sizeKb}KB) ارسال شد. این فایل باینری است؛ برای کار با آن از ابزارهای save_file و read_saved_file استفاده کن."
+            val sizeLabel = formatBytes(f.sizeBytes)
+            when {
+                f.textContent != null ->
+                    "📎 محتوای فایل پیوست «${f.name}» ($sizeLabel):\n```\n${f.textContent}\n```"
+                f.localPath != null ->
+                    "📎 فایل پیوست «${f.name}» ($sizeLabel) در حافظه فوکو ذخیره شد. برای خواندن آن از ابزار read_saved_file با نام «${f.localPath}» استفاده کن."
+                else ->
+                    "📎 فایل پیوست «${f.name}» ($sizeLabel) ارسال شد. این فایل باینری است؛ برای کار با آن از ابزارهای save_file و read_saved_file استفاده کن."
             }
         }
         val effectiveText = listOf(trimmed, filesBlock).filter { it.isNotBlank() }.joinToString("\n\n")

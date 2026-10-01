@@ -88,16 +88,59 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestCorePermissions() {
-        val wanted = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            wanted.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        val missing = wanted.filter {
+        val missing = allRuntimePermissions().filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isNotEmpty()) {
             permissionLauncher.launch(missing.toTypedArray())
         }
+    }
+
+    /**
+     * Every runtime permission FOKO declares. They are requested so the user sees them
+     * in Settings > Apps > FOKO AI > Permissions and can grant them one by one.
+     * Special-access permissions (overlay / accessibility / all-files) are launched
+     * from the in-app settings screen instead, because Android handles them as
+     * settings screens rather than dialogs.
+     */
+    private fun allRuntimePermissions(): List<String> {
+        val wanted = mutableListOf(
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.CAMERA,
+            // Contacts (تماس / مخاطبین)
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.WRITE_CONTACTS,
+            Manifest.permission.GET_ACCOUNTS,
+            // Phone (تماس تلفنی)
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.CALL_PHONE,
+            // SMS (پیامک)
+            Manifest.permission.READ_SMS,
+            Manifest.permission.RECEIVE_SMS,
+            Manifest.permission.SEND_SMS,
+            // Location, used by the device tools
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+
+        // Storage: legacy permissions up to Android 12, granular media access from Android 13
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            wanted.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            wanted.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            wanted.add(Manifest.permission.POST_NOTIFICATIONS)
+            wanted.add(Manifest.permission.READ_MEDIA_IMAGES)
+            wanted.add(Manifest.permission.READ_MEDIA_VIDEO)
+            wanted.add(Manifest.permission.READ_MEDIA_AUDIO)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            wanted.add(Manifest.permission.READ_PHONE_NUMBERS)
+            wanted.add(Manifest.permission.ANSWER_PHONE_CALLS)
+        }
+        return wanted.distinct()
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
