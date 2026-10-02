@@ -566,75 +566,10 @@ fun SettingsScreen(
         }
 
         // ---------------------------------------------------------------
-        // Manual provider: any site that gave you a key, with its own
-        // base URL and model, typed by hand.
+        // Hand-wired providers: as many sites as you like, each with its
+        // own base URL, key and model. All of them join the rotation.
         // ---------------------------------------------------------------
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Code, contentDescription = null, tint = PersianTurquoise)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "افزودن سایت دلخواه (کلید دستی)",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Text(
-                    text = "اگر سایتی به تو کلید داده، نامش و آدرس API و نام مدلش را دستی اینجا بنویس؛ فوکو با همان کلید به آن سایت وصل می‌شود.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedTextField(
-                    value = customLabel,
-                    onValueChange = { customLabel = it },
-                    label = { Text("نام سایت") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                OutlinedTextField(
-                    value = customBase,
-                    onValueChange = { customBase = it },
-                    label = { Text("آدرس API (Base URL)") },
-                    placeholder = { Text("https://example.com/v1") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                ApiKeyField(
-                    title = "کلید API",
-                    hint = "کلید همان سایت",
-                    value = customKey,
-                    onValueChange = { customKey = it }
-                )
-                OutlinedTextField(
-                    value = customModel,
-                    onValueChange = { customModel = it },
-                    label = { Text("نام مدل") },
-                    placeholder = { Text("gpt-4o-mini") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                Button(
-                    onClick = {
-                        viewModel.saveCustom(customLabel, customBase, customKey, customModel)
-                        Toast.makeText(context, "سایت دلخواه ذخیره و به ربات وصل شد", Toast.LENGTH_SHORT).show()
-                    },
-                    enabled = customBase.isNotBlank() && customModel.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
-                ) {
-                    Text("ذخیره و اتصال به ربات", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
+        CustomProvidersCard(context = context, onChanged = { viewModel.loadKeys() })
 
         Spacer(modifier = Modifier.height(24.dp))
     }

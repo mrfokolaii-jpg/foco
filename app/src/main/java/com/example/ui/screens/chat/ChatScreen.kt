@@ -793,6 +793,33 @@ fun ChatScreen(
                     )
                 }
 
+                // Every hand-wired service the user added in Settings.
+                val manualModels = AiModelCatalog.customModels(
+                    com.example.data.local.ApiKeyStore(context.applicationContext).getCustomProviders()
+                )
+                if (manualModels.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "سرویس‌های دستی تو (${manualModels.size}):",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = PersianTurquoise
+                    )
+                    manualModels.forEach { model ->
+                        val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
+                        ModelOptionCard(
+                            title = model.title,
+                            description = model.subtitle,
+                            tag = model.badge,
+                            isSelected = isSelected,
+                            onClick = {
+                                viewModel.selectCatalogModel(model)
+                                showModelSelectorSheet = false
+                            }
+                        )
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }

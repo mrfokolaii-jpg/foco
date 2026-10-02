@@ -89,16 +89,27 @@ object AiRouter {
                 )
             }
             AiProviderKind.CUSTOM -> {
-                val base = keyStore.getCustomBaseUrl().trimEnd('/')
-                val endpoint = if (base.endsWith("/chat/completions")) base else "$base/chat/completions"
-                OpenAiCompatProvider.chat(
-                    endpoint = endpoint,
-                    apiKey = key,
-                    apiModelId = catalogModel.apiModelId,
-                    catalogId = catalogModel.id,
-                    conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt
-                )
+                // Resolve the exact provider this catalog entry points at, so several
+                // hand-wired services can coexist and each keeps its own key.
+                val provider = keyStore.customProviderById(
+                    AiModelCatalog.customProviderIdOf(catalogModel.id)
+                ) ?: keyStore.primaryCustomProvider()
+
+                if (provider == null || provider.baseUrl.isBlank()) {
+                    ApiResult.Error("این سرویس دستی حذف شده است؛ از تنظیمات دوباره اضافه‌اش کن.")
+                } else {
+                    val base = provider.baseUrl.trimEnd('/')
+                    val endpoint =
+                        if (base.endsWith("/chat/completions")) base else "$base/chat/completions"
+                    OpenAiCompatProvider.chat(
+                        endpoint = endpoint,
+                        apiKey = provider.apiKey.ifBlank { key },
+                        apiModelId = catalogModel.apiModelId.ifBlank { provider.model },
+                        catalogId = catalogModel.id,
+                        conversationHistory = conversationHistory,
+                        systemInstructionText = effectiveSystemPrompt
+                    )
+                }
             }
             AiProviderKind.GEMINI -> {
                 if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
@@ -120,7 +131,8 @@ object AiRouter {
         return when {
             // 9Router first: it already rotates the free models for us.
             snapshot.nineRouterConfigured -> AiModelCatalog.nineRouter(keyStore.getNineRouterModel())
-            snapshot.customConfigured -> AiModelCatalog.custom(keyStore.getCustomLabel(), keyStore.getCustomModel())
+            snapshot.customConfigured -> keyStore.primaryCustomProvider()?.let { AiModelCatalog.custom(it) }
+                ?: AiModelCatalog.builtinFree
             snapshot.geminiConfigured -> AiModelCatalog.geminiFlash
             snapshot.huggingFaceConfigured -> AiModelCatalog.hfQwen25
             snapshot.xaiGrokConfigured -> AiModelCatalog.xaiGrok2
@@ -135,7 +147,10 @@ object AiRouter {
         val snapshot = keyStore.snapshot()
         val chain = mutableListOf<CatalogModel>()
         if (snapshot.nineRouterConfigured) chain.add(AiModelCatalog.nineRouter(keyStore.getNineRouterModel()))
-        if (snapshot.customConfigured) chain.add(AiModelCatalog.custom(keyStore.getCustomLabel(), keyStore.getCustomModel()))
+        // Every hand-wired provider takes part, in the order they were added.
+        if (snapshot.customConfigured) {
+            chain.addAll(AiModelCatalog.customModels(keyStore.getCustomProviders()))
+        }
         if (snapshot.geminiConfigured) {
             chain.add(AiModelCatalog.geminiFlash)
             chain.add(AiModelCatalog.geminiPro)

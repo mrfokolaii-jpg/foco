@@ -4,6 +4,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.example.BuildConfig
 import com.example.data.model.AiProviderKind
+import com.example.data.model.CustomProvider
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
 
 class ApiKeyStore(context: Context) {
     private val prefs: SharedPreferences =
@@ -57,19 +61,104 @@ class ApiKeyStore(context: Context) {
         .putBoolean(KEY_9R_ENABLED, true)
         .apply()
 
-    // ---- Manual provider: any site, its own base URL, key and model ----
+    // ---- Hand-wired providers -----------------------------------------------
+    // The user can add as many as they like; auto-rotation walks through all of them.
 
-    fun getCustomLabel(): String = prefs.getString(KEY_CUSTOM_LABEL, "")?.trim().orEmpty()
-    fun getCustomBaseUrl(): String = prefs.getString(KEY_CUSTOM_BASE, "")?.trim().orEmpty()
-    fun getCustomKey(): String = prefs.getString(KEY_CUSTOM_KEY, "")?.trim().orEmpty()
-    fun getCustomModel(): String = prefs.getString(KEY_CUSTOM_MODEL, "")?.trim().orEmpty()
+    fun getCustomProviders(): List<CustomProvider> = try {
+        val raw = prefs.getString(KEY_CUSTOM_LIST, null)
+        if (raw.isNullOrBlank()) {
+            // Migrate the older single-provider fields so nothing already entered is lost.
+            val legacyBase = prefs.getString(KEY_CUSTOM_BASE, "")?.trim().orEmpty()
+            if (legacyBase.isBlank()) {
+                emptyList()
+            } else {
+                listOf(
+                    CustomProvider(
+                        id = "migrated",
+                        label = prefs.getString(KEY_CUSTOM_LABEL, "")?.trim().orEmpty()
+                            .ifBlank { "سرویس دستی" },
+                        baseUrl = legacyBase,
+                        apiKey = prefs.getString(KEY_CUSTOM_KEY, "")?.trim().orEmpty(),
+                        model = prefs.getString(KEY_CUSTOM_MODEL, "")?.trim().orEmpty()
+                    )
+                )
+            }
+        } else {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).mapNotNull { i ->
+                val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                val base = o.optString("baseUrl").trim()
+                if (base.isBlank()) return@mapNotNull null
+                CustomProvider(
+                    id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                    label = o.optString("label").ifBlank { "سرویس دستی" },
+                    baseUrl = base,
+                    apiKey = o.optString("apiKey"),
+                    model = o.optString("model"),
+                    enabled = o.optBoolean("enabled", true)
+                )
+            }
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
 
-    fun setCustom(label: String, baseUrl: String, key: String, model: String) = prefs.edit()
-        .putString(KEY_CUSTOM_LABEL, label.trim())
-        .putString(KEY_CUSTOM_BASE, baseUrl.trim())
-        .putString(KEY_CUSTOM_KEY, key.trim())
-        .putString(KEY_CUSTOM_MODEL, model.trim())
-        .apply()
+    fun setCustomProviders(list: List<CustomProvider>) {
+        try {
+            val arr = JSONArray()
+            list.forEach { p ->
+                arr.put(
+                    JSONObject().apply {
+                        put("id", p.id)
+                        put("label", p.label)
+                        put("baseUrl", p.baseUrl)
+                        put("apiKey", p.apiKey)
+                        put("model", p.model)
+                        put("enabled", p.enabled)
+                    }
+                )
+            }
+            prefs.edit().putString(KEY_CUSTOM_LIST, arr.toString()).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    fun upsertCustomProvider(provider: CustomProvider) {
+        val list = getCustomProviders().toMutableList()
+        val index = list.indexOfFirst { it.id == provider.id }
+        if (index >= 0) list[index] = provider else list.add(provider)
+        setCustomProviders(list)
+    }
+
+    fun removeCustomProvider(id: String) {
+        setCustomProviders(getCustomProviders().filterNot { it.id == id })
+    }
+
+    fun customProviderById(id: String): CustomProvider? =
+        getCustomProviders().firstOrNull { it.id == id }
+
+    /** First enabled hand-wired provider — the default pick when auto mode starts. */
+    fun primaryCustomProvider(): CustomProvider? =
+        getCustomProviders().firstOrNull { it.enabled }
+
+    // Legacy single-provider accessors, kept so older call sites keep compiling.
+    fun getCustomLabel(): String = primaryCustomProvider()?.label.orEmpty()
+    fun getCustomBaseUrl(): String = primaryCustomProvider()?.baseUrl.orEmpty()
+    fun getCustomKey(): String = primaryCustomProvider()?.apiKey.orEmpty()
+    fun getCustomModel(): String = primaryCustomProvider()?.model.orEmpty()
+
+    fun setCustom(label: String, baseUrl: String, key: String, model: String) {
+        if (baseUrl.isBlank()) return
+        upsertCustomProvider(
+            CustomProvider(
+                id = "migrated",
+                label = label.trim().ifBlank { "سرویس دستی" },
+                baseUrl = baseUrl.trim(),
+                apiKey = key.trim(),
+                model = model.trim()
+            )
+        )
+    }
 
     // ---- Voice (TTS) selection ------------------------------------------------
 
@@ -129,7 +218,7 @@ class ApiKeyStore(context: Context) {
         openRouterConfigured = getOpenRouterKey().isNotBlank(),
         geminiConfigured = getGeminiKey().isNotBlank(),
         nineRouterConfigured = isNineRouterEnabled() && getNineRouterBaseUrl().isNotBlank(),
-        customConfigured = getCustomBaseUrl().isNotBlank() && getCustomModel().isNotBlank()
+        customConfigured = getCustomProviders().any { it.enabled && it.baseUrl.isNotBlank() && it.model.isNotBlank() }
     )
 
     companion object {
@@ -152,6 +241,7 @@ class ApiKeyStore(context: Context) {
         private const val KEY_CUSTOM_BASE = "custom_base"
         private const val KEY_CUSTOM_KEY = "custom_key"
         private const val KEY_CUSTOM_MODEL = "custom_model"
+        private const val KEY_CUSTOM_LIST = "custom_provider_list"
         private const val KEY_TTS_VOICE = "tts_voice"
         private const val KEY_TTS_PITCH = "tts_pitch"
         private const val KEY_TTS_RATE = "tts_rate"

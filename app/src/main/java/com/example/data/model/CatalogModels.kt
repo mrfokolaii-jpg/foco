@@ -54,15 +54,25 @@ object AiModelCatalog {
         isRecommended = true
     )
 
+    /** Prefix that ties a catalog entry back to its hand-wired provider. */
+    const val CUSTOM_ID_PREFIX = "custom:"
+
     /** User-defined OpenAI-compatible provider (site + key + model typed by hand). */
-    fun custom(label: String, modelId: String): CatalogModel = CatalogModel(
-        id = "custom",
-        title = label.ifBlank { "کلید دستی" },
-        subtitle = "سرویس دلخواه شما با آدرس، کلید و مدل دستی",
+    fun custom(provider: CustomProvider): CatalogModel = CatalogModel(
+        id = CUSTOM_ID_PREFIX + provider.id,
+        title = provider.label.ifBlank { "سرویس دستی" },
+        subtitle = provider.baseUrl.removePrefix("https://").removePrefix("http://").trimEnd('/'),
         provider = AiProviderKind.CUSTOM,
-        apiModelId = modelId.ifBlank { "gpt-4o-mini" },
+        apiModelId = provider.model,
         badge = "دستی"
     )
+
+    fun customProviderIdOf(catalogId: String): String = catalogId.removePrefix(CUSTOM_ID_PREFIX)
+
+    /** Every hand-wired provider the user enabled — all of them take part in the rotation. */
+    fun customModels(providers: List<CustomProvider>): List<CatalogModel> =
+        providers.filter { it.enabled && it.baseUrl.isNotBlank() && it.model.isNotBlank() }
+            .map { custom(it) }
 
     val hfQwen25 = CatalogModel(
         id = "hf-qwen25",

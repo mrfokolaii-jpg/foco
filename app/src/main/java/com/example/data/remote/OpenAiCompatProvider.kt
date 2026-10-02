@@ -40,6 +40,35 @@ object ProviderHttp {
 }
 
 object OpenAiCompatProvider {
+
+    /**
+     * Reads the provider's own model list (GET {base}/models) so the user picks a real model
+     * name instead of typing one from memory. Returns an empty list on any failure.
+     */
+    suspend fun listModels(baseUrl: String, apiKey: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val base = baseUrl.trim().trimEnd('/')
+            if (base.isBlank()) return@withContext emptyList()
+            val modelsUrl = if (base.endsWith("/models")) base else "$base/models"
+            try {
+                val builder = Request.Builder()
+                    .url(modelsUrl)
+                    .get()
+                    .addHeader("Accept", "application/json")
+                if (apiKey.isNotBlank()) builder.addHeader("Authorization", "Bearer $apiKey")
+                ProviderHttp.client.newCall(builder.build()).execute().use { res ->
+                    val body = res.body?.string().orEmpty()
+                    if (!res.isSuccessful) return@withContext emptyList()
+                    val arr = JSONObject(body).optJSONArray("data") ?: JSONArray()
+                    (0 until arr.length()).mapNotNull { i ->
+                        arr.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() }
+                    }.sorted()
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
     suspend fun chat(
         endpoint: String,
         apiKey: String,
