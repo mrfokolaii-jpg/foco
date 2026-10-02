@@ -71,6 +71,39 @@ class ApiKeyStore(context: Context) {
         .putString(KEY_CUSTOM_MODEL, model.trim())
         .apply()
 
+    // ---- Voice (TTS) selection ------------------------------------------------
+
+    /** Engine voice name the user picked (empty = let the engine choose). */
+    fun getTtsVoice(): String = prefs.getString(KEY_TTS_VOICE, "")?.trim().orEmpty()
+
+    fun setTtsVoice(name: String) = prefs.edit().putString(KEY_TTS_VOICE, name.trim()).apply()
+
+    fun getTtsPitch(): Float = prefs.getFloat(KEY_TTS_PITCH, 0.85f)
+
+    fun setTtsPitch(value: Float) = prefs.edit().putFloat(KEY_TTS_PITCH, value).apply()
+
+    fun getTtsRate(): Float = prefs.getFloat(KEY_TTS_RATE, 1.0f)
+
+    fun setTtsRate(value: Float) = prefs.edit().putFloat(KEY_TTS_RATE, value).apply()
+
+    /** Custom display names so the user can rename voices ("آقا امیر" instead of "fa-ir-x-..."). */
+    fun getVoiceLabels(): Map<String, String> = try {
+        val raw = prefs.getString(KEY_TTS_LABELS, "{}") ?: "{}"
+        val json = org.json.JSONObject(raw)
+        json.keys().asSequence().associateWith { json.optString(it) }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    fun setVoiceLabel(voiceName: String, label: String) {
+        try {
+            val json = org.json.JSONObject(prefs.getString(KEY_TTS_LABELS, "{}") ?: "{}")
+            if (label.isBlank()) json.remove(voiceName) else json.put(voiceName, label.trim())
+            prefs.edit().putString(KEY_TTS_LABELS, json.toString()).apply()
+        } catch (_: Exception) {
+        }
+    }
+
     fun keyFor(provider: AiProviderKind): String = when (provider) {
         AiProviderKind.GROQ -> getGroqKey()
         AiProviderKind.XAI_GROK -> getXaiGrokKey()
@@ -119,6 +152,10 @@ class ApiKeyStore(context: Context) {
         private const val KEY_CUSTOM_BASE = "custom_base"
         private const val KEY_CUSTOM_KEY = "custom_key"
         private const val KEY_CUSTOM_MODEL = "custom_model"
+        private const val KEY_TTS_VOICE = "tts_voice"
+        private const val KEY_TTS_PITCH = "tts_pitch"
+        private const val KEY_TTS_RATE = "tts_rate"
+        private const val KEY_TTS_LABELS = "tts_labels"
     }
 }
 

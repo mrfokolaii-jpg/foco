@@ -201,8 +201,17 @@ fun ChatScreen(
                     if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                         ttsInstance?.setLanguage(Locale("fa"))
                     }
-                    ttsInstance?.setPitch(1.0f)
-                    ttsInstance?.setSpeechRate(0.95f)
+                    // Use the voice the user picked in Tools > صدا.
+                    val voiceStore = com.example.data.local.ApiKeyStore(context.applicationContext)
+                    val preferred = voiceStore.getTtsVoice()
+                    if (preferred.isNotBlank()) {
+                        try {
+                            ttsInstance?.voices?.firstOrNull { it.name == preferred }
+                                ?.let { v -> ttsInstance?.voice = v }
+                        } catch (_: Exception) {}
+                    }
+                    ttsInstance?.setPitch(voiceStore.getTtsPitch())
+                    ttsInstance?.setSpeechRate(voiceStore.getTtsRate())
                 } catch (_: Exception) {}
                 ttsEngine = ttsInstance
             }

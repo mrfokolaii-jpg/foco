@@ -476,7 +476,7 @@ class FokoFloatingOverlayService : Service() {
                     if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
                         tts?.setLanguage(Locale("fa"))
                     }
-                    tts?.setSpeechRate(1.0f)
+                    applyVoiceSettings()
                 } catch (_: Exception) {
                 }
                 ttsReady = true
@@ -498,6 +498,24 @@ class FokoFloatingOverlayService : Service() {
                     }
                 })
             }
+        }
+    }
+
+    /**
+     * Applies the voice, pitch and speed the user picked in the app's Voice card.
+     * Safe to call repeatedly; every step is optional.
+     */
+    private fun applyVoiceSettings() {
+        try {
+            val engine = tts ?: return
+            val store = ApiKeyStore(applicationContext)
+            val wanted = store.getTtsVoice()
+            if (wanted.isNotBlank()) {
+                engine.voices?.firstOrNull { it.name == wanted }?.let { engine.voice = it }
+            }
+            engine.setPitch(store.getTtsPitch())
+            engine.setSpeechRate(store.getTtsRate())
+        } catch (_: Exception) {
         }
     }
 

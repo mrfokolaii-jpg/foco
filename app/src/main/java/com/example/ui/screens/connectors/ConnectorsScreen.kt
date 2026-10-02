@@ -259,6 +259,9 @@ fun ConnectorsScreen(
         }
 
         // Self upgrade
+        // Voice: pick a Persian voice, rename it, test it here.
+        VoiceSettingsCard(context = context)
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
