@@ -630,7 +630,8 @@ class FokoFloatingOverlayService : Service() {
         scope.launch(Dispatchers.IO) {
             val keyStore = ApiKeyStore(applicationContext)
             val model = AiRouter.pickDefault(keyStore)
-            val persona = SystemPersona.GENERAL.systemPrompt
+            // ویجت شناور صوتی است، پس همیشه با لحن محاوره‌ای رفیق صوتی حرف می‌زند.
+            val persona = SystemPersona.VOICE_BUDDY.systemPrompt
             val history = transcript.dropLast(1).takeLast(12)
             val reply = AgentEngine.run(
                 context = applicationContext,

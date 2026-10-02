@@ -69,7 +69,8 @@ data class ChatUiState(
     val isAutoMode: Boolean = true,
     /** Which model Auto is currently using — surfaced next to the Auto pill. */
     val autoModelLabel: String = "",
-    val selectedPersona: SystemPersona = SystemPersona.GENERAL,
+    // پیش‌فرض: رفیق صوتی محاوره‌ای، چون خروجی فوکو به صدا تبدیل می‌شود.
+    val selectedPersona: SystemPersona = SystemPersona.VOICE_BUDDY,
     val isThinkingModeEnabled: Boolean = false,
     val isGoogleSearchEnabled: Boolean = false,
     val isLoading: Boolean = false,
