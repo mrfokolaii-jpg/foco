@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -695,6 +696,19 @@ fun ChatScreen(
         val snapshot = viewModel.getKeySnapshot()
         val activeModels = AiModelCatalog.activeModels(snapshot)
 
+        // Gemini models come from the user's own key, never from a hard-coded list.
+        var geminiModels by remember { mutableStateOf<List<com.example.data.model.CatalogModel>>(emptyList()) }
+        LaunchedEffect(snapshot.geminiConfigured) {
+            geminiModels = if (snapshot.geminiConfigured) {
+                val geminiKey = com.example.data.local.ApiKeyStore(context.applicationContext).getGeminiKey()
+                com.example.data.remote.GeminiModels.list(geminiKey)
+                    .take(12)
+                    .map { AiModelCatalog.gemini(it) }
+            } else {
+                emptyList()
+            }
+        }
+
         ModalBottomSheet(
             onDismissRequest = { showModelSelectorSheet = false },
             sheetState = rememberModalBottomSheetState()
@@ -765,32 +779,44 @@ fun ChatScreen(
                     }
                 }
 
-                // Bottom: what the free Gemini key unlocks.
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = if (snapshot.geminiConfigured) {
-                        "با کلید رایگان Gemini این مدل‌ها وصل می‌شوند:"
-                    } else {
-                        "با کلید رایگان Gemini این مدل‌ها وصل می‌شوند (کلید وارد نشده):"
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = PersianTurquoise
-                )
-                AiModelCatalog.modelsForProvider(AiProviderKind.GEMINI).forEach { model ->
-                    val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
-                    ModelOptionCard(
-                        title = model.title,
-                        description = model.subtitle,
-                        tag = if (snapshot.geminiConfigured) model.badge else "کلید لازم است",
-                        isSelected = isSelected,
-                        onClick = {
-                            if (snapshot.geminiConfigured) {
+                // Gemini — shown ONLY when a key exists, and the list is fetched from that key.
+                // With no key there is nothing here at all: no pre-stored model names.
+                if (snapshot.geminiConfigured) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "مدل‌های موجود با کلید Gemini تو:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = PersianTurquoise
+                    )
+                    if (geminiModels.isEmpty()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = PersianTurquoise
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "در حال واکشی لیست از گوگل...",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    geminiModels.forEach { model ->
+                        val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
+                        ModelOptionCard(
+                            title = model.title,
+                            description = model.subtitle,
+                            tag = "Gemini",
+                            isSelected = isSelected,
+                            onClick = {
                                 viewModel.selectCatalogModel(model)
                                 showModelSelectorSheet = false
                             }
-                        }
-                    )
+                        )
+                    }
                 }
 
                 // Every hand-wired service the user added in Settings.
@@ -1109,8 +1135,10 @@ fun ModernChatInputBar(
                 },
                 modifier = Modifier
                     .weight(1f)
+                    .heightIn(min = 48.dp, max = 168.dp)
                     .testTag("chat_input_field"),
-                maxLines = 4,
+                // Room for a real paragraph instead of four cramped lines.
+                maxLines = 9,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color.Transparent,
                     unfocusedBorderColor = Color.Transparent,

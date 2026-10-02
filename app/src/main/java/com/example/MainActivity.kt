@@ -8,8 +8,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Extension
@@ -173,10 +176,18 @@ fun PersianAiApp(
         Screen.Settings
     )
 
+    // While the keyboard is open the bottom bar steps aside, so the message composer can sit
+    // flush on top of the keyboard instead of leaving dead space in between.
+    val density = LocalDensity.current
+    val keyboardOpen = WindowInsets.ime.getBottom(density) > 0
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
+            if (keyboardOpen) {
+                // Keep the scaffold's bottom slot empty while typing.
+            } else {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary,
@@ -222,6 +233,7 @@ fun PersianAiApp(
                         modifier = Modifier.testTag("nav_${screen.route}")
                     )
                 }
+            }
             }
         }
     ) { innerPadding ->

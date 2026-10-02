@@ -54,6 +54,22 @@ object AiModelCatalog {
         isRecommended = true
     )
 
+    /** Prefix for a Gemini model that came straight from the user's own key. */
+    const val GEMINI_ID_PREFIX = "gemini:"
+
+    /**
+     * A Gemini model discovered live from the user's key. Nothing is pre-stored — [modelId]
+     * is exactly the id Google returned for that key.
+     */
+    fun gemini(modelId: String): CatalogModel = CatalogModel(
+        id = GEMINI_ID_PREFIX + modelId,
+        title = modelId,
+        subtitle = "از کلید Gemini خودت واکشی شد",
+        provider = AiProviderKind.GEMINI,
+        apiModelId = modelId,
+        badge = "Gemini"
+    )
+
     /** Prefix that ties a catalog entry back to its hand-wired provider. */
     const val CUSTOM_ID_PREFIX = "custom:"
 
