@@ -571,6 +571,9 @@ fun SettingsScreen(
         // ---------------------------------------------------------------
         CustomProvidersCard(context = context, onChanged = { viewModel.loadKeys() })
 
+        // Where FOKO is allowed to write: models, downloads and knowledge files.
+        StorageSettingsCard(context = context)
+
         Spacer(modifier = Modifier.height(24.dp))
     }
 }

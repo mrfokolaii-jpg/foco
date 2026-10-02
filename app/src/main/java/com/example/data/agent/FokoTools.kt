@@ -8,6 +8,7 @@ import com.example.data.connectors.ConnectorResult
 import com.example.data.connectors.ConnectorStore
 import com.example.data.connectors.GitHubConnector
 import com.example.data.connectors.HuggingFaceConnector
+import com.example.data.local.FokoStorage
 import com.example.data.remote.PageReader
 import com.example.data.remote.WebSearchProvider
 import com.example.service.FokoAccessibilityService
@@ -60,6 +61,16 @@ object FokoTools {
             "hf_chat",
             "اجرای یک مدل هوش مصنوعی روی Hugging Face با توکن خودِ کاربر (سرویس Inference).",
             "prompt: پرسش یا دستور, model: نام مدل (اختیاری)"
+        ),
+        ToolSpec(
+            "download_file",
+            "دانلود یک فایل از اینترنت و ذخیرهٔ آن در حافظهٔ گوشی، با رعایت سقف حجمی که کاربر تعیین کرده.",
+            "url: آدرس فایل, name: نام فایل (اختیاری)"
+        ),
+        ToolSpec(
+            "list_local_files",
+            "نمایش فایل‌هایی که فوکو در حافظهٔ کاربر ذخیره کرده است.",
+            "بدون آرگومان"
         ),
         ToolSpec(
             "harvest_knowledge",
@@ -155,6 +166,26 @@ object FokoTools {
                         is ConnectorResult.Ok -> ToolOutcome(true, r.value)
                         is ConnectorResult.Err -> ToolOutcome(false, r.message)
                     }
+                }
+                "download_file" -> downloadFile(
+                    context,
+                    args.optString("url"),
+                    args.optString("name")
+                )
+                "list_local_files" -> {
+                    val storage = FokoStorage(context)
+                    val files = storage.listFiles()
+                    ToolOutcome(
+                        true,
+                        if (files.isEmpty()) "هیچ فایلی ذخیره نشده است."
+                        else buildString {
+                            appendLine("محل ذخیره: ${storage.locationLabel()}")
+                            appendLine("فضای استفاده‌شده: ${FokoStorage.formatSize(storage.totalUsedBytes())}")
+                            files.forEach { (name, size) ->
+                                appendLine("- $name (${FokoStorage.formatSize(size)})")
+                            }
+                        }
+                    )
                 }
                 "harvest_knowledge" -> harvest(
                     context,
@@ -270,6 +301,86 @@ object FokoTools {
             ToolOutcome(true, file.readText().take(6000))
         } catch (e: Exception) {
             ToolOutcome(false, "خواندن فایل ناموفق بود: ${e.localizedMessage}")
+        }
+    }
+
+    /**
+     * Downloads a file straight into the folder the user chose, streaming it so that a large
+     * file never lands in memory, and stopping the moment it passes the user's size cap.
+     */
+    private suspend fun downloadFile(
+        context: Context,
+        url: String,
+        requestedName: String
+    ): ToolOutcome = withContext(Dispatchers.IO) {
+        if (url.isBlank()) return@withContext ToolOutcome(false, "آدرسی داده نشد.")
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            return@withContext ToolOutcome(false, "آدرس باید با http یا https شروع شود.")
+        }
+
+        val storage = FokoStorage(context)
+        val limit = storage.maxDownloadBytes
+        val name = requestedName.trim().ifBlank {
+            url.substringBefore('?').substringAfterLast('/').ifBlank { "foko_download" }
+        }
+
+        try {
+            val connection = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 20_000
+                readTimeout = 30_000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "FOKO-AI/3.0")
+            }
+            connection.connect()
+
+            if (connection.responseCode !in 200..299) {
+                val code = connection.responseCode
+                connection.disconnect()
+                return@withContext ToolOutcome(false, "دانلود ناموفق بود (کد $code).")
+            }
+
+            val declared = connection.contentLengthLong
+            if (declared > limit) {
+                connection.disconnect()
+                return@withContext ToolOutcome(
+                    false,
+                    "حجم این فایل ${FokoStorage.formatSize(declared)} است و از سقف مجاز " +
+                        "${FokoStorage.formatSize(limit)} بیشتر است. می‌توانی سقف را در " +
+                        "تنظیمات → محل ذخیرهٔ فایل‌ها بالاتر ببری."
+                )
+            }
+
+            val sink = storage.openForWrite(name)
+                ?: return@withContext ToolOutcome(false, "نوشتن در محل ذخیره ممکن نشد.")
+
+            var written = 0L
+            sink.use { output ->
+                connection.inputStream.use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        written += read
+                        if (written > limit) {
+                            connection.disconnect()
+                            return@withContext ToolOutcome(
+                                false,
+                                "فایل از سقف مجاز بزرگ‌تر بود؛ دانلود متوقف شد."
+                            )
+                        }
+                        output.write(buffer, 0, read)
+                    }
+                }
+            }
+            connection.disconnect()
+
+            ToolOutcome(
+                true,
+                "فایل «$name» با حجم ${FokoStorage.formatSize(written)} ذخیره شد در: " +
+                    "${storage.locationLabel()}"
+            )
+        } catch (e: Exception) {
+            ToolOutcome(false, "دانلود ناموفق بود: ${e.localizedMessage}")
         }
     }
 
