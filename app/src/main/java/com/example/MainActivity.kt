@@ -43,6 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,7 +52,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -211,60 +214,70 @@ fun PersianAiApp(
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        // Swiping from the left edge opens the panel on every screen.
-        gesturesEnabled = true,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.surface,
-                drawerTonalElevation = 6.dp
-            ) {
-                FokoSectionDrawer(
-                    currentRoute = currentRoute,
-                    onSelect = { route ->
-                        scope.launch { drawerState.close() }
-                        openSection(route)
+    // اپ راست‌به‌چپ است، پس اندروید کشو را به‌طور پیش‌فرض از لبه‌ی «راست» باز می‌کند.
+    // چون خواستی با کشیدن «از چپ به راست» باز شود، جهت چیدمان را فقط برای قابِ کشو
+    // چپ‌به‌راست می‌کنیم و داخلِ هر دو بخش (فهرست و محتوای اپ) دوباره راست‌به‌چپ
+    // می‌گذاریم تا متن‌ها و چیدمان فارسی دست‌نخورده بمانند.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            // کشیدن از لبه‌ی چپ به سمت راست، پنل بخش‌ها را باز می‌کند.
+            gesturesEnabled = true,
+            drawerContent = {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    ModalDrawerSheet(
+                        drawerContainerColor = MaterialTheme.colorScheme.surface,
+                        drawerTonalElevation = 6.dp
+                    ) {
+                        FokoSectionDrawer(
+                            currentRoute = currentRoute,
+                            onSelect = { route ->
+                                scope.launch { drawerState.close() }
+                                openSection(route)
+                            }
+                        )
                     }
-                )
+                }
             }
-        }
-    ) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = MaterialTheme.colorScheme.background
-        ) { innerPadding ->
-            NavHost(
-                navController = navController,
-                startDestination = Screen.Chat.route,
-                modifier = Modifier.padding(innerPadding)
-            ) {
-                composable(Screen.Chat.route) {
-                    chatViewModel.refreshKeys()
-                    ChatScreen(
-                        viewModel = chatViewModel,
-                        openTwoWayVoice = openTwoWayVoice,
-                        onTwoWayVoiceConsumed = onTwoWayVoiceConsumed,
-                        onNavigateToScreen = { route -> openSection(route) },
-                        onOpenMenu = { scope.launch { drawerState.open() } }
-                    )
-                }
-                composable(Screen.Connectors.route) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        FokoSectionTopBar(
-                            title = Screen.Connectors.persianTitle,
-                            onOpenMenu = { scope.launch { drawerState.open() } }
-                        )
-                        ConnectorsScreen()
-                    }
-                }
-                composable(Screen.Settings.route) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        FokoSectionTopBar(
-                            title = Screen.Settings.persianTitle,
-                            onOpenMenu = { scope.launch { drawerState.open() } }
-                        )
-                        SettingsScreen()
+        ) {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    containerColor = MaterialTheme.colorScheme.background
+                ) { innerPadding ->
+                    NavHost(
+                        navController = navController,
+                        startDestination = Screen.Chat.route,
+                        modifier = Modifier.padding(innerPadding)
+                    ) {
+                        composable(Screen.Chat.route) {
+                            chatViewModel.refreshKeys()
+                            ChatScreen(
+                                viewModel = chatViewModel,
+                                openTwoWayVoice = openTwoWayVoice,
+                                onTwoWayVoiceConsumed = onTwoWayVoiceConsumed,
+                                onNavigateToScreen = { route -> openSection(route) },
+                                onOpenMenu = { scope.launch { drawerState.open() } }
+                            )
+                        }
+                        composable(Screen.Connectors.route) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                FokoSectionTopBar(
+                                    title = Screen.Connectors.persianTitle,
+                                    onOpenMenu = { scope.launch { drawerState.open() } }
+                                )
+                                ConnectorsScreen()
+                            }
+                        }
+                        composable(Screen.Settings.route) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                FokoSectionTopBar(
+                                    title = Screen.Settings.persianTitle,
+                                    onOpenMenu = { scope.launch { drawerState.open() } }
+                                )
+                                SettingsScreen()
+                            }
+                        }
                     }
                 }
             }
