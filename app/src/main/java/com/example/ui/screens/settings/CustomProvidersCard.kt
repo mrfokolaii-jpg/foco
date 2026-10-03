@@ -19,8 +19,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -70,16 +72,30 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
     var loadingModels by remember { mutableStateOf(false) }
     var fetchedModels by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    // Draft for the "add new" form
+    // Draft for the "add new" / "edit" form
     var draftLabel by remember { mutableStateOf("") }
     var draftBase by remember { mutableStateOf("") }
     var draftKey by remember { mutableStateOf("") }
     var draftModel by remember { mutableStateOf("") }
 
+    /** اگر پُر باشد یعنی فرم در حالت ویرایش همان سرویس است، نه افزودن سرویس تازه. */
+    var editingId by remember { mutableStateOf<String?>(null) }
+
+    // نتیجهٔ «تست اتصال» پیش از ذخیره
+    var testing by remember { mutableStateOf(false) }
+    var testedOk by remember { mutableStateOf(false) }
+    var testMessage by remember { mutableStateOf("") }
+
     fun persist(list: List<CustomProvider>) {
         store.setCustomProviders(list)
         providers = list
         onChanged()
+    }
+
+    /** با هر تغییر در فرم، نتیجهٔ تست قبلی بی‌اعتبار می‌شود. */
+    fun invalidateTest() {
+        testedOk = false
+        testMessage = ""
     }
 
     fun resetDraft() {
@@ -88,7 +104,22 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
         draftKey = ""
         draftModel = ""
         fetchedModels = emptyList()
+        editingId = null
+        invalidateTest()
+        testing = false
         adding = false
+    }
+
+    /** فرم را با مقادیر یک سرویس ذخیره‌شده پر می‌کند تا کاربر ویرایشش کند. */
+    fun startEditing(provider: CustomProvider) {
+        draftLabel = provider.label
+        draftBase = provider.baseUrl
+        draftKey = provider.apiKey
+        draftModel = provider.model
+        fetchedModels = emptyList()
+        editingId = provider.id
+        invalidateTest()
+        adding = true
     }
 
     Card(
@@ -111,7 +142,7 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
             }
 
             Text(
-                text = "هر تعداد سرویس رایگان که خواستی اینجا اضافه کن. همه‌شان پشت سر هم قرار می‌گیرند و در حالت Auto، وقتی یکی به سقف خورد فوکو خودش می‌رود سراغ بعدی.",
+                text = "هر تعداد سرویس که خواستی اینجا اضافه کن. هر سرویس با کلیک روی ✎ ویرایش می‌شود و پیش از ذخیره، اتصالش واقعاً تست می‌شود.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -144,6 +175,12 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Text(
+                            text = if (provider.enabled) "فعال" else "غیرفعال",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (provider.enabled) Color(0xFF10B981) else MaterialTheme.colorScheme.outline
+                        )
                     }
                     Switch(
                         checked = provider.enabled,
@@ -152,6 +189,13 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                         },
                         colors = SwitchDefaults.colors(checkedTrackColor = PersianTurquoise)
                     )
+                    IconButton(onClick = { startEditing(provider) }) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = "ویرایش",
+                            tint = PersianTurquoise
+                        )
+                    }
                     IconButton(onClick = {
                         persist(providers.filterNot { it.id == provider.id })
                         Toast.makeText(context, "«${provider.label}» حذف شد", Toast.LENGTH_SHORT).show()
@@ -168,7 +212,7 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
             // ---- Add form ---------------------------------------------------
             if (!adding) {
                 Button(
-                    onClick = { adding = true },
+                    onClick = { resetDraft(); adding = true },
                     modifier = Modifier.fillMaxWidth().height(46.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
@@ -178,6 +222,14 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                     Text("افزودن سرویس جدید", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             } else {
+                if (editingId != null) {
+                    Text(
+                        text = "در حال ویرایش «${draftLabel.ifBlank { "سرویس دستی" }}» — تغییرات را بزن و ذخیره کن:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = PersianTurquoise
+                    )
+                }
                 Text(
                     text = "۱) یکی از سرویس‌های آماده را بزن تا آدرسش پر شود، یا خودت آدرس را بنویس:",
                     style = MaterialTheme.typography.labelSmall,
@@ -204,6 +256,7 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                                     draftLabel = preset.label
                                     draftBase = preset.baseUrl
                                     fetchedModels = emptyList()
+                                    invalidateTest()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 7.dp)
                         ) {
@@ -231,7 +284,7 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
 
                 OutlinedTextField(
                     value = draftLabel,
-                    onValueChange = { draftLabel = it },
+                    onValueChange = { draftLabel = it; invalidateTest() },
                     label = { Text("نام سرویس") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -239,7 +292,7 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                 )
                 OutlinedTextField(
                     value = draftBase,
-                    onValueChange = { draftBase = it },
+                    onValueChange = { draftBase = it; invalidateTest() },
                     label = { Text("آدرس API (Base URL)") },
                     placeholder = { Text("https://api.groq.com/openai/v1") },
                     singleLine = true,
@@ -248,7 +301,7 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                 )
                 OutlinedTextField(
                     value = draftKey,
-                    onValueChange = { draftKey = it },
+                    onValueChange = { draftKey = it; invalidateTest() },
                     label = { Text("کلید API (اگر سرویس کلید نمی‌خواهد، خالی بگذار)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -316,7 +369,7 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                                         RoundedCornerShape(8.dp)
                                     )
-                                    .clickable { draftModel = model }
+                                    .clickable { draftModel = model; invalidateTest() }
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
                                 Text(
@@ -331,7 +384,7 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
 
                 OutlinedTextField(
                     value = draftModel,
-                    onValueChange = { draftModel = it },
+                    onValueChange = { draftModel = it; invalidateTest() },
                     label = { Text("نام مدل") },
                     placeholder = { Text("از لیست بالا انتخاب کن یا دستی بنویس") },
                     singleLine = true,
@@ -339,12 +392,86 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                     shape = RoundedCornerShape(12.dp)
                 )
 
+                Text(
+                    text = "۳) پیش از ذخیره، اتصال را تست کن:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // تست واقعی اتصال: تا وقتی این دکمه موفق نشود، ذخیره فعال نمی‌شود.
+                Button(
+                    onClick = {
+                        testing = true
+                        invalidateTest()
+                        scope.launch {
+                            val result = OpenAiCompatProvider.testConnection(
+                                baseUrl = draftBase.trim(),
+                                apiKey = draftKey.trim(),
+                                model = draftModel.trim()
+                            )
+                            testing = false
+                            when (result) {
+                                is com.example.data.remote.ApiResult.Success -> {
+                                    testedOk = true
+                                    testMessage = "✓ " + result.data
+                                }
+                                is com.example.data.remote.ApiResult.Error -> {
+                                    testedOk = false
+                                    testMessage = "✗ " + result.message
+                                }
+                            }
+                        }
+                    },
+                    enabled = draftBase.isNotBlank() && !testing,
+                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (testedOk) Color(0xFF10B981) else PersianTurquoise
+                    )
+                ) {
+                    if (testing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.width(18.dp).height(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.Black
+                        )
+                    } else if (testedOk) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black)
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Black)
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (testing) "در حال تست اتصال..." else "تست اتصال",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (testMessage.isNotBlank()) {
+                    Text(
+                        text = testMessage,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (testedOk) Color(0xFF10B981) else MaterialTheme.colorScheme.error
+                    )
+                }
+
+                if (!testedOk && !testing) {
+                    Text(
+                        text = "نکته: دکمهٔ ذخیره پس از موفق شدن «تست اتصال» روشن می‌شود.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
+                            val existingId = editingId
                             store.upsertCustomProvider(
                                 CustomProvider(
-                                    id = UUID.randomUUID().toString(),
+                                    id = existingId ?: UUID.randomUUID().toString(),
                                     label = draftLabel.ifBlank { "سرویس دستی" },
                                     baseUrl = draftBase.trim(),
                                     apiKey = draftKey.trim(),
@@ -353,15 +480,23 @@ fun CustomProvidersCard(context: Context, onChanged: () -> Unit) {
                             )
                             providers = store.getCustomProviders()
                             onChanged()
-                            Toast.makeText(context, "سرویس اضافه و به ربات وصل شد", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                context,
+                                if (existingId != null) "سرویس ویرایش و ذخیره شد" else "سرویس اضافه و به ربات وصل شد",
+                                Toast.LENGTH_SHORT
+                            ).show()
                             resetDraft()
                         },
-                        enabled = draftBase.isNotBlank() && draftModel.isNotBlank(),
+                        enabled = testedOk && draftBase.isNotBlank() && draftModel.isNotBlank(),
                         modifier = Modifier.weight(1f).height(46.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
                     ) {
-                        Text("ذخیره و اتصال", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (editingId != null) "ذخیره تغییرات" else "ذخیره و اتصال",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                     TextButton(onClick = { resetDraft() }) {
                         Text("انصراف", color = MaterialTheme.colorScheme.onSurfaceVariant)

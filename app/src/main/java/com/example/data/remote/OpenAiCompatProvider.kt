@@ -69,6 +69,57 @@ object OpenAiCompatProvider {
             }
         }
 
+    /**
+     * پیش از ذخیرهٔ یک سرویس دستی، واقعاً به آن وصل می‌شود تا کاربر سرویس خراب ذخیره نکند.
+     *
+     *  ۱) ارزان‌ترین راه: فهرست مدل‌ها را می‌گیریم (GET {base}/models).
+     *  ۲) اگر سرویس چنین مسیری نداشت، یک پیام یک‌کلمه‌ای می‌فرستیم و فقط موفق/ناموفق را می‌سنجیم.
+     */
+    suspend fun testConnection(
+        baseUrl: String,
+        apiKey: String,
+        model: String = ""
+    ): ApiResult<String> = withContext(Dispatchers.IO) {
+        val base = baseUrl.trim().trimEnd('/')
+        if (base.isBlank()) return@withContext ApiResult.Error("آدرس API خالی است.")
+
+        val models = listModels(base, apiKey)
+        if (models.isNotEmpty()) {
+            return@withContext ApiResult.Success("اتصال برقرار شد — ${models.size} مدل پیدا شد")
+        }
+
+        val endpoint =
+            if (base.endsWith("/chat/completions")) base else "$base/chat/completions"
+        try {
+            val body = JSONObject()
+            body.put("model", model.trim().ifBlank { "gpt-4o-mini" })
+            val messages = JSONArray()
+            val probe = JSONObject()
+            probe.put("role", "user")
+            probe.put("content", "ping")
+            messages.put(probe)
+            body.put("messages", messages)
+            body.put("max_tokens", 1)
+
+            val builder = Request.Builder()
+                .url(endpoint)
+                .addHeader("Content-Type", "application/json")
+                .post(body.toString().toRequestBody(ProviderHttp.JSON))
+            if (apiKey.isNotBlank()) builder.addHeader("Authorization", "Bearer $apiKey")
+
+            ProviderHttp.client.newCall(builder.build()).execute().use { res ->
+                val text = res.body?.string().orEmpty()
+                if (res.isSuccessful) {
+                    ApiResult.Success("اتصال برقرار شد")
+                } else {
+                    ApiResult.Error(ProviderHttp.mapStatus(res.code, text))
+                }
+            }
+        } catch (e: Exception) {
+            ApiResult.Error("اتصال برقرار نشد: ${e.localizedMessage ?: "خطای شبکه"}")
+        }
+    }
+
     suspend fun chat(
         endpoint: String,
         apiKey: String,
@@ -160,22 +211,6 @@ object OpenAiCompatProvider {
             ApiResult.Error("اتصال اینترنت برقرار نشد: ${e.localizedMessage ?: "خطای شبکه"}")
         }
     }
-}
-
-object PollinationsFreeProvider {
-    private const val ENDPOINT = "https://text.pollinations.ai/openai"
-
-    suspend fun chat(
-        conversationHistory: List<ChatMessage>,
-        systemInstructionText: String
-    ): ApiResult<ChatApiResponse> = OpenAiCompatProvider.chat(
-        endpoint = ENDPOINT,
-        apiKey = "FREE",
-        apiModelId = "openai-large",
-        catalogId = "foko-free",
-        conversationHistory = conversationHistory,
-        systemInstructionText = systemInstructionText
-    )
 }
 
 object XaiGrokProvider {

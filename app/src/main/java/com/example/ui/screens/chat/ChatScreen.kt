@@ -27,6 +27,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -800,8 +802,9 @@ fun ChatScreen(
             geminiModels = if (snapshot.geminiConfigured) {
                 val geminiKey = com.example.data.local.ApiKeyStore(context.applicationContext).getGeminiKey()
                 com.example.data.remote.GeminiModels.list(geminiKey)
-                    // سقف بالا تا مدل‌های gemini با take() حذف نشوند.
-                    .take(40)
+                    // سقف ۶۰ تایی تا فهرست بتواند ۴۰ تا ۵۰ مدل را نشان دهد و
+                    // مدل‌های gemini با take() حذف نشوند.
+                    .take(60)
                     .map { AiModelCatalog.gemini(it) }
             } else {
                 emptyList()
@@ -815,6 +818,8 @@ fun ChatScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // فهرست مدل‌ها می‌تواند ۴۰ تا ۵۰ مورد باشد؛ بدون اسکرول، بقیه دیده نمی‌شد.
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -824,35 +829,10 @@ fun ChatScreen(
                     fontWeight = FontWeight.Bold
                 )
 
-                // 1. Auto — routed through 9Router whenever it is connected.
-                val nineRouterOn = snapshot.nineRouterConfigured
-                ModelOptionCard(
-                    title = "Auto (حالت خودکار)",
-                    description = if (nineRouterOn) {
-                        "مسیریابی از طریق 9Router: هر مدل به سقف خورد، مدل بعدی خودکار فعال می‌شود"
-                    } else {
-                        "به‌ترتیب از سرویس‌های فعال تو استفاده می‌کند و روی محدودیت، مدل را خودکار عوض می‌کند"
-                    },
-                    tag = if (nineRouterOn) "9Router" else "خودکار",
-                    isSelected = uiState.isAutoMode,
-                    onClick = {
-                        viewModel.enableAutoMode()
-                        showModelSelectorSheet = false
-                    }
-                )
-                // Live: which bot is answering right now, and when Auto hops to the next one.
-                if (uiState.isAutoMode) {
-                    Text(
-                        text = "الان با این مدل کار می‌کنی: " + uiState.autoModelLabel.ifBlank { "—" },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = PersianTurquoise,
-                        modifier = Modifier.padding(start = 6.dp)
-                    )
-                }
-
+                // گزینهٔ «Auto» کاملاً حذف شد؛ همهٔ سرویس‌های وصل‌شده مستقیم فهرست می‌شوند
+                // و کاربر خودش مدل را انتخاب می‌کند.
                 val nonGeminiActive = activeModels.filter {
-                    it.id != AiModelCatalog.builtinFree.id && it.provider != AiProviderKind.GEMINI
+                    it.provider != AiProviderKind.GEMINI
                 }
                 if (nonGeminiActive.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -867,7 +847,6 @@ fun ChatScreen(
                         val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
                         ModelOptionCard(
                             title = model.title,
-                            description = model.subtitle,
                             tag = model.badge,
                             isSelected = isSelected,
                             onClick = {
@@ -907,7 +886,6 @@ fun ChatScreen(
                         val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
                         ModelOptionCard(
                             title = model.title,
-                            description = model.subtitle,
                             tag = "Gemini",
                             isSelected = isSelected,
                             onClick = {
@@ -934,7 +912,6 @@ fun ChatScreen(
                         val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
                         ModelOptionCard(
                             title = model.title,
-                            description = model.subtitle,
                             tag = model.badge,
                             isSelected = isSelected,
                             onClick = {
@@ -1384,10 +1361,13 @@ private fun RoundIconButton(
     }
 }
 
+/**
+ * کارت مدل — عمداً کوچک و ساده: فقط یک ردیف با نام مدل.
+ * توصیف‌های بلند حذف شده‌اند تا فهرست ۴۰ تا ۵۰ مدلی جمع‌وجمع بماند.
+ */
 @Composable
 fun ModelOptionCard(
     title: String,
-    description: String,
     tag: String,
     isSelected: Boolean,
     onClick: () -> Unit
@@ -1396,56 +1376,47 @@ fun ModelOptionCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) PersianTurquoise.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
         ),
         border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, PersianTurquoise) else null
     ) {
         Row(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // نام مدل کوتاه می‌شود تا برچسب «Gemini» عمودی له نشود.
-                    Text(
-                        text = title,
-                        modifier = Modifier.weight(1f, fill = false),
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (isSelected) PersianTurquoise else MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Text(
-                            text = tag,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            maxLines = 1,
-                            softWrap = false,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(4.dp))
+            // نام مدل فضای باقی‌مانده را می‌گیرد و برچسب و تیک به انتهای ردیف می‌روند.
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isSelected) PersianTurquoise else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(6.dp)
+            ) {
                 Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = tag,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
             }
             if (isSelected) {
+                Spacer(modifier = Modifier.width(6.dp))
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = "انتخاب شده",
                     tint = PersianTurquoise,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

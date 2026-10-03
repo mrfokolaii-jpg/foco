@@ -15,7 +15,10 @@
 .cxx
 local.properties
 .env
-debug.keystore
+
+# debug.keystore عمداً این‌جا نیست: این فایل در مخزن نگه داشته می‌شود تا همهٔ
+# ساخت‌ها (از جمله GitHub Actions) با یک کلید ثابت امضا شوند و نسخهٔ جدید
+# روی نسخهٔ قبلی نصب شود، بدون نیاز به حذف برنامه.
 
 # Python & Cache ignores
 __pycache__/

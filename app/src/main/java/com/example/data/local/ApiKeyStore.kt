@@ -196,7 +196,7 @@ class ApiKeyStore(context: Context) {
         AiProviderKind.GEMINI -> getGeminiKey()
         AiProviderKind.NINE_ROUTER -> getNineRouterKey()
         AiProviderKind.CUSTOM -> getCustomKey()
-        AiProviderKind.BUILTIN_FREE -> "FREE"
+        AiProviderKind.NONE -> ""
     }
 
     fun hasAnyKey(): Boolean =
@@ -261,7 +261,7 @@ data class ApiKeySnapshot(
         AiProviderKind.GEMINI -> geminiConfigured
         AiProviderKind.NINE_ROUTER -> nineRouterConfigured
         AiProviderKind.CUSTOM -> customConfigured
-        AiProviderKind.BUILTIN_FREE -> true
+        AiProviderKind.NONE -> false
     }
 
     fun hasAny(): Boolean =

@@ -17,16 +17,25 @@ import org.junit.Test
 
 class AiCatalogRouterTest {
     @Test
-    fun defaultModelIsTheBuiltinFreeProvider() {
+    fun defaultModelIsTheNotConnectedPlaceholder() {
+        // هوش مصنوعی داخلی و بی‌کلید فوکو حذف شده است؛ تا وقتی کاربر کلید نگذارد
+        // فقط حالت «وصل نشده» نشان داده می‌شود.
         val model = AiModelCatalog.defaultModel()
-        assertEquals("foko-free", model.id)
-        assertEquals(AiProviderKind.BUILTIN_FREE, model.provider)
+        assertEquals("not-connected", model.id)
+        assertEquals(AiProviderKind.NONE, model.provider)
+    }
+
+    @Test
+    fun builtinFreeProviderIsGone() {
+        assertNull(AiModelCatalog.findById("foko-free"))
+        assertTrue(AiModelCatalog.all.none { it.id == "foko-free" })
+        assertTrue(AiModelCatalog.all.none { it.provider == AiProviderKind.NONE })
     }
 
     @Test
     fun findByIdReturnsKnownModels() {
-        assertNotNull(AiModelCatalog.findById("foko-free"))
         assertNotNull(AiModelCatalog.findById("groq-llama33"))
+        assertNotNull(AiModelCatalog.findById("gemini-flash"))
         assertNull(AiModelCatalog.findById("does-not-exist"))
     }
 

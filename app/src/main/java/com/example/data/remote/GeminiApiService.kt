@@ -79,6 +79,8 @@ object GeminiApiService {
         conversationHistory: List<ChatMessage>,
         systemInstructionText: String,
         selectedModel: AiModelOption,
+        /** شناسهٔ دقیق مدلی که کاربر انتخاب کرده (مثلاً gemini-3.8-flash). */
+        modelIdOverride: String = "",
         enableThinkingMode: Boolean = false,
         enableGoogleSearch: Boolean = false
     ): ApiResult<ChatApiResponse> = withContext(Dispatchers.IO) {
@@ -88,12 +90,13 @@ object GeminiApiService {
         }
 
         // Determine actual model to use based on features
-        val effectiveModel = if (enableThinkingMode) {
-            GeminiModelConstants.MODEL_PRO
-        } else if (enableGoogleSearch && selectedModel == AiModelOption.LITE) {
-            GeminiModelConstants.MODEL_FLASH
-        } else {
-            selectedModel.modelId
+        val effectiveModel = when {
+            enableThinkingMode -> GeminiModelConstants.MODEL_PRO
+            // انتخاب صریح کاربر بر همه چیز مقدم است؛ وگرنه همهٔ مدل‌های Gemini
+            // به یک مدل ثابت می‌رسیدند و یک جواب می‌دادند.
+            modelIdOverride.isNotBlank() -> modelIdOverride
+            enableGoogleSearch && selectedModel == AiModelOption.LITE -> GeminiModelConstants.MODEL_FLASH
+            else -> selectedModel.modelId
         }
 
         try {

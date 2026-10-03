@@ -66,8 +66,9 @@ data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val selectedModel: AiModelOption = AiModelOption.FLASH,
     val selectedCatalogModel: CatalogModel = AiModelCatalog.defaultModel(),
-    val isAutoMode: Boolean = true,
-    /** Which model Auto is currently using — surfaced next to the Auto pill. */
+    // گزینهٔ «Auto» از برنامه حذف شد؛ همیشه یک مدل مشخص انتخاب است.
+    val isAutoMode: Boolean = false,
+    /** نام آخرین مدلی که پاسخ داده — برای نمایش وضعیت. */
     val autoModelLabel: String = "",
     // پیش‌فرض: رفیق صوتی محاوره‌ای، چون خروجی فوکو به صدا تبدیل می‌شود.
     val selectedPersona: SystemPersona = SystemPersona.VOICE_BUDDY,

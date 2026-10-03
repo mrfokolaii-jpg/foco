@@ -31,14 +31,10 @@ object AiRouter {
         }
 
         return when (catalogModel.provider) {
-            AiProviderKind.BUILTIN_FREE -> {
-                PollinationsFreeProvider.chat(
-                    conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt
-                )
-            }
+            // هوش مصنوعی داخلی فوکو حذف شده است: نه کلیدی هست، نه سرویس بی‌کلیدی.
+            AiProviderKind.NONE -> missingKey(AiProviderKind.NONE)
             AiProviderKind.HUGGINGFACE -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
+                if (key.isBlank()) return missingKey(AiProviderKind.HUGGINGFACE)
                 HuggingFaceProvider.chat(
                     apiKey = key,
                     apiModelId = catalogModel.apiModelId,
@@ -48,7 +44,7 @@ object AiRouter {
                 )
             }
             AiProviderKind.XAI_GROK -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
+                if (key.isBlank()) return missingKey(AiProviderKind.XAI_GROK)
                 XaiGrokProvider.chat(
                     apiKey = key,
                     apiModelId = catalogModel.apiModelId,
@@ -58,7 +54,7 @@ object AiRouter {
                 )
             }
             AiProviderKind.OPENROUTER -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
+                if (key.isBlank()) return missingKey(AiProviderKind.OPENROUTER)
                 OpenRouterProvider.chat(
                     apiKey = key,
                     apiModelId = catalogModel.apiModelId,
@@ -68,7 +64,7 @@ object AiRouter {
                 )
             }
             AiProviderKind.GROQ -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
+                if (key.isBlank()) return missingKey(AiProviderKind.GROQ)
                 GroqProvider.chat(
                     apiKey = key,
                     apiModelId = catalogModel.apiModelId,
@@ -112,13 +108,17 @@ object AiRouter {
                 }
             }
             AiProviderKind.GEMINI -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
+                if (key.isBlank()) return missingKey(AiProviderKind.GEMINI)
                 GeminiApiService.runtimeApiKeyOverride = key
                 val option = AiModelCatalog.toGeminiOption(catalogModel) ?: AiModelOption.FLASH
                 GeminiApiService.generateChatResponse(
                     conversationHistory = conversationHistory,
                     systemInstructionText = effectiveSystemPrompt,
                     selectedModel = option,
+                    // مهم: شناسهٔ واقعی همان مدلی که کاربر انتخاب کرده به گوگل می‌رود.
+                    // پیش‌تر این مقدار نادیده گرفته می‌شد و همهٔ مدل‌های Gemini به یک مدل
+                    // ثابت (فلش) می‌رسیدند؛ نتیجه این بود که همه یک جواب می‌دادند.
+                    modelIdOverride = catalogModel.apiModelId,
                     enableThinkingMode = enableThinkingMode,
                     enableGoogleSearch = enableGoogleSearch
                 )
@@ -132,15 +132,24 @@ object AiRouter {
             // 9Router first: it already rotates the free models for us.
             snapshot.nineRouterConfigured -> AiModelCatalog.nineRouter(keyStore.getNineRouterModel())
             snapshot.customConfigured -> keyStore.primaryCustomProvider()?.let { AiModelCatalog.custom(it) }
-                ?: AiModelCatalog.builtinFree
+                ?: AiModelCatalog.notConnected
             snapshot.geminiConfigured -> AiModelCatalog.geminiFlash
             snapshot.huggingFaceConfigured -> AiModelCatalog.hfQwen25
             snapshot.xaiGrokConfigured -> AiModelCatalog.xaiGrok2
             snapshot.openRouterConfigured -> AiModelCatalog.orLlamaFree
             snapshot.groqConfigured -> AiModelCatalog.groqLlama33
-            else -> AiModelCatalog.builtinFree
+            else -> AiModelCatalog.notConnected
         }
     }
+
+    /** پیام روشن برای وقتی که کاربر هنوز کلید آن سرویس را وارد نکرده است. */
+    private fun missingKey(provider: AiProviderKind): ApiResult.Error = ApiResult.Error(
+        if (provider == AiProviderKind.NONE) {
+            "هیچ سرویس هوش مصنوعی وصل نیست. در «تنظیمات» کلید جمینای یا یک سرویس دستی اضافه کن."
+        } else {
+            "کلید «${provider.persianTitle}» وارد نشده است. در «تنظیمات» کلیدش را بگذار."
+        }
+    )
 
     /** Every model the user can currently reach, best first — the rotation order for Auto. */
     fun rotationChain(keyStore: ApiKeyStore): List<CatalogModel> {
@@ -171,8 +180,8 @@ object AiRouter {
             chain.add(AiModelCatalog.orDeepseekFree)
             chain.add(AiModelCatalog.orQwenFree)
         }
-        // Last resort so Auto never runs out of options.
-        chain.add(AiModelCatalog.builtinFree)
+        // دیگر هیچ سرویس داخلی و بی‌کلیدی پشتیبان نیست؛ اگر هیچ سرویسی وصل نباشد
+        // زنجیره خالی می‌ماند و پیام «هیچ سرویسی وصل نیست» نشان داده می‌شود.
         return chain.distinctBy { it.id }
     }
 }

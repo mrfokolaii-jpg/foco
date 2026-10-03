@@ -84,6 +84,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.connectors.ConnectorStore
 import com.example.data.local.ApiKeySnapshot
 import com.example.data.local.ApiKeyStore
+import com.example.data.model.CustomProvider
 import com.example.service.FokoAccessibilityService
 import com.example.service.FokoFloatingOverlayService
 import com.example.ui.theme.PersianTurquoise
@@ -101,6 +102,8 @@ data class SettingsUiState(
     val userEmail: String = "",
     val accessibilityEnabled: Boolean = false,
     val snapshot: ApiKeySnapshot = ApiKeySnapshot(),
+    /** سرویس‌های دستی کاربر، برای نمایش وضعیت اتصال هرکدام (فعال + نام مدل). */
+    val customProviders: List<CustomProvider> = emptyList(),
     // 9Router — the self-hosted router that rotates free models for us
     val nineRouterBaseUrl: String = ApiKeyStore.DEFAULT_9ROUTER_BASE_URL,
     val nineRouterKey: String = "",
@@ -123,6 +126,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun loadKeys() {
+        // کلید Hugging Face در صفحهٔ «پلاگین‌ها» ذخیره می‌شود؛ اگر آن‌جا وارد شده باشد
+        // این‌جا هم استفاده می‌شود تا وضعیت اتصال «فعال» نشان داده شود و مدل‌های
+        // Hugging Face واقعاً کار کنند.
+        runCatching {
+            val connectors = ConnectorStore(getApplication<Application>())
+            val hfFromConnector = connectors.hfToken().trim()
+            if (hfFromConnector.isNotBlank() && keyStore.getHuggingFaceKey().isBlank()) {
+                keyStore.setHuggingFaceKey(hfFromConnector)
+            }
+        }
+
         _uiState.value = SettingsUiState(
             huggingFace = keyStore.getHuggingFaceKey(),
             xaiGrok = keyStore.getXaiGrokKey(),
@@ -132,6 +146,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             userEmail = keyStore.getUserEmail(),
             accessibilityEnabled = keyStore.isAccessibilityEnabled(),
             snapshot = keyStore.snapshot(),
+            customProviders = keyStore.getCustomProviders(),
             nineRouterBaseUrl = keyStore.getNineRouterBaseUrl(),
             nineRouterKey = keyStore.getNineRouterKey(),
             nineRouterModel = keyStore.getNineRouterModel(),
@@ -170,6 +185,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val connectors = ConnectorStore(getApplication<Application>())
             connectors.setGitHub(gitHubToken, owner, repo, branch)
             connectors.setHfToken(huggingFaceToken)
+            // همان کلید در مخزن کلیدهای هوش مصنوعی هم ذخیره می‌شود تا وضعیت اتصال
+            // «فعال» شود و مدل‌های Hugging Face با همین کلید پاسخ دهند.
+            if (huggingFaceToken.isNotBlank()) keyStore.setHuggingFaceKey(huggingFaceToken)
             loadKeys()
         }
     }
@@ -335,11 +353,30 @@ fun SettingsScreen(
                     color = PersianTurquoise
                 )
 
-                ProviderStatusRow(
-                    title = "هوش مصنوعی رایگان داخلی فوکو",
-                    subtitle = "پاسخگویی سریع بدون نیاز به کلید (Pollinations Free)",
-                    isActive = true
-                )
+                // هوش مصنوعی داخلی فوکو کاملاً حذف شد؛ به‌جای آن اگر هیچ سرویسی وصل
+                // نباشد صریح گفته می‌شود.
+                if (uiState.customProviders.isEmpty() && !uiState.snapshot.hasAny()) {
+                    Text(
+                        text = "هیچ سرویس هوش مصنوعی وصل نیست. کلید جمینای یا یک سرویس دستی اضافه کن.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                // سرویس‌های دستی: وضعیت فعال/غیرفعال به‌همراه نام مدل انتخاب‌شده.
+                uiState.customProviders.forEach { provider ->
+                    ProviderStatusRow(
+                        title = provider.label,
+                        subtitle = if (provider.model.isBlank()) {
+                            "مدل انتخاب نشده"
+                        } else {
+                            "مدل: ${provider.model}"
+                        },
+                        isActive = provider.enabled &&
+                            provider.baseUrl.isNotBlank() &&
+                            provider.model.isNotBlank()
+                    )
+                }
 
                 ProviderStatusRow(
                     title = "Hugging Face (کیوون Qwen 2.5, DeepSeek R1)",

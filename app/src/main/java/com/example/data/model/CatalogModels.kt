@@ -1,7 +1,12 @@
 package com.example.data.model
 
 enum class AiProviderKind(val persianTitle: String, val badgeColorHex: Long) {
-    BUILTIN_FREE("هوش مصنوعی رایگان فوکو", 0xFF10B981),
+    /**
+     * «هیچ سرویسی وصل نیست». پیش‌تر یک هوش مصنوعی داخلی و بی‌کلید این‌جا بود که
+     * حذف شد؛ حالا این حالت فقط یک پیام روشن به کاربر نشان می‌دهد و هیچ درخواستی
+     * به سرویس بیرونی نمی‌فرستد.
+     */
+    NONE("بدون سرویس", 0xFF94A3B8),
     HUGGINGFACE("Hugging Face", 0xFFFFD21E),
     XAI_GROK("xAI Grok", 0xFF1E293B),
     OPENROUTER("OpenRouter", 0xFF6366F1),
@@ -33,13 +38,18 @@ data class CatalogModel(
 )
 
 object AiModelCatalog {
-    val builtinFree = CatalogModel(
-        id = "foko-free",
-        title = "فوکو پایه (بدون کلید)",
-        subtitle = "پاسخ‌گویی سریع وقتی هیچ کلید یا مسیریابی وصل نیست",
-        provider = AiProviderKind.BUILTIN_FREE,
-        apiModelId = "openai-large",
-        badge = "پایه",
+    /**
+     * حالت «وصل نشده». هوش مصنوعی داخلی و بی‌کلیدِ فوکو کاملاً حذف شده است؛ این مدل
+     * هیچ‌جا در فهرست انتخاب مدل دیده نمی‌شود و فقط تا وقتی کاربر کلیدی وارد نکرده،
+     * جای مدل انتخابی را نگه می‌دارد تا یک پیام روشن نشان داده شود.
+     */
+    val notConnected = CatalogModel(
+        id = "not-connected",
+        title = "هیچ سرویسی وصل نیست",
+        subtitle = "کلید جمینای یا یک سرویس دستی را در تنظیمات وارد کن",
+        provider = AiProviderKind.NONE,
+        apiModelId = "",
+        badge = "—",
         isRecommended = false
     )
 
@@ -241,8 +251,8 @@ object AiModelCatalog {
         capability = ModelCapability.VISION
     )
 
+    /** فهرست مدل‌های از پیش تعریف‌شده — [notConnected] عمداً این‌جا نیست. */
     val all: List<CatalogModel> = listOf(
-        builtinFree,
         hfQwen25,
         hfQwenCoder,
         hfDeepseekR1,
@@ -257,7 +267,7 @@ object AiModelCatalog {
         geminiPro
     )
 
-    fun defaultModel(): CatalogModel = builtinFree
+    fun defaultModel(): CatalogModel = notConnected
 
     fun findById(id: String): CatalogModel? = all.find { it.id == id }
 

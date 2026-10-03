@@ -31,6 +31,11 @@ object ProviderPresets {
 
     val ALL: List<ProviderPreset> = listOf(
         ProviderPreset(
+            "OpenAI",
+            "https://api.openai.com/v1",
+            "کلید رسمی OpenAI از platform.openai.com · مدل‌های gpt-4o و gpt-4o-mini"
+        ),
+        ProviderPreset(
             "Groq",
             "https://api.groq.com/openai/v1",
             "بدون کارت اعتباری · ۱۰۰۰ درخواست در روز · خیلی سریع"

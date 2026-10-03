@@ -17,8 +17,9 @@ android {
     applicationId = "com.aistudio.persianai.utufha"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // با هر نسخهٔ جدید این عدد را یکی زیاد کن تا اندروید نصب نسخهٔ بالاتر را بپذیرد.
+    versionCode = 2
+    versionName = "1.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
