@@ -43,13 +43,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.local.ApiKeyStore
 import com.example.ui.theme.PersianTurquoise
-import java.util.Locale
+import com.example.util.FokoVoiceCtl
+import com.example.util.SpeechText
 
 private const val TEST_SENTENCE = "سلام، من فوکو هستم. صدای من را تست کن، اگر دوست نداشتی یکی دیگر انتخاب کن."
 
 /**
- * Voice picker for the spoken replies: choose a Persian voice, rename it, tune pitch/speed
- * and hear it right here.
+ * انتخاب صدای پاسخ‌های گفتاری: صدا را انتخاب کن، اسمش را عوض کن، زیر‌و‌بمی و سرعت را
+ * تنظیم کن و همان‌جا بشنو.
+ *
+ * نکته‌ی مهم: با هر انتخاب، صدا بلافاصله در چت و ویجت شناور هم عوض می‌شود
+ * (به‌کمک `FokoVoiceCtl`) — دیگر نیازی به بستن و باز‌کردن اپ نیست.
  */
 @Composable
 fun VoiceSettingsCard(context: Context) {
@@ -66,20 +70,24 @@ fun VoiceSettingsCard(context: Context) {
     var pitch by remember { mutableStateOf(store.getTtsPitch()) }
     var rate by remember { mutableStateOf(store.getTtsRate()) }
 
+    val persianVoices = voices.filter { FokoVoiceCtl.isPersian(it) }
+
     DisposableEffect(Unit) {
         var tts: TextToSpeech? = null
         tts = TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 val t = tts
                 if (t != null) {
-                    try {
-                        t.language = Locale("fa", "IR")
-                        t.setPitch(store.getTtsPitch())
-                        t.setSpeechRate(store.getTtsRate())
-                        voices = t.voices?.toList().orEmpty()
-                            .filter { it.locale.language == "fa" || it.locale.language == "ar" }
-                            .sortedBy { it.name }
-                    } catch (_: Exception) {
+                    SpeechText.init(context.applicationContext)
+                    FokoVoiceCtl.applySettings(context.applicationContext, t)
+                    val list = FokoVoiceCtl.voicesOf(t)
+                    voices = list
+                    if (selected.isBlank()) {
+                        selected = try {
+                            t.voice?.name.orEmpty()
+                        } catch (_: Exception) {
+                            ""
+                        }
                     }
                     ready = true
                 }
@@ -97,9 +105,8 @@ fun VoiceSettingsCard(context: Context) {
 
     fun labelFor(v: Voice): String = labels[v.name]?.takeIf { it.isNotBlank() } ?: v.name
 
-    fun applyVoice(name: String) {
-        store.setTtsVoice(name)
-        selected = name
+    /** صدا را روی موتور تست می‌گذارد تا پیش‌نمایش درست شنیده شود. */
+    fun setOnEngine(name: String) {
         try {
             val t = engine ?: return
             voices.firstOrNull { it.name == name }?.let { t.voice = it }
@@ -109,16 +116,21 @@ fun VoiceSettingsCard(context: Context) {
         }
     }
 
+    /** انتخاب صدا: ذخیره + خبر‌کردن چت و ویجت + شنیدن فوری. */
+    fun applyVoice(name: String) {
+        selected = name
+        setOnEngine(name)
+        FokoVoiceCtl.persistAndNotify(context.applicationContext, name, null, null)
+    }
+
     fun preview(name: String) {
         val t = engine ?: return
         try {
             t.stop()
-            voices.firstOrNull { it.name == name }?.let { t.voice = it }
-            t.setPitch(pitch)
-            t.setSpeechRate(rate)
-            t.speak(com.example.util.SpeechText.forSpeech(TEST_SENTENCE), TextToSpeech.QUEUE_FLUSH, null, "voice_test")
         } catch (_: Exception) {
         }
+        setOnEngine(name)
+        FokoVoiceCtl.speak(t, TEST_SENTENCE, "voice_test")
     }
 
     Card(
@@ -138,21 +150,32 @@ fun VoiceSettingsCard(context: Context) {
             }
 
             Text(
-                text = if (ready) {
-                    if (voices.isEmpty())
-                        "روی این گوشی هیچ صدای فارسی نصب نیست. از تنظیمات اندروید یک موتور صدا با زبان فارسی نصب کن."
-                    else
-                        "صدای فارسی نصب‌شده روی گوشی: ${voices.size} مورد. یکی را انتخاب کن، اسمش را عوض کن و همان‌جا تست بگیر."
-                } else {
+                text = if (!ready) {
                     "در حال آماده‌سازی موتور صدا..."
+                } else if (persianVoices.isEmpty()) {
+                    "روی این گوشی هیچ صدای فارسی نصب نیست. دکمه‌ی زیر را بزن و از صفحه‌ی تنظیمات صدای اندروید، بسته‌ی زبان فارسی را نصب کن."
+                } else {
+                    "صدای فارسی آماده: ${persianVoices.size} مورد (از مجموع ${voices.size} صدای گوشی). روی هر صدا بزن تا هم انتخاب شود و هم همان لحظه بشنوی."
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            val visible = if (showAll) voices else voices.take(4)
+            if (ready && persianVoices.isEmpty()) {
+                Button(
+                    onClick = { FokoVoiceCtl.openSystemTtsSettings(context) },
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
+                ) {
+                    Text("نصب / فعال‌سازی صدای فارسی", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            val visible = if (showAll) voices else voices.take(6)
             visible.forEach { voice ->
                 val isSelected = selected == voice.name
+                val isPersian = FokoVoiceCtl.isPersian(voice)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -161,7 +184,10 @@ fun VoiceSettingsCard(context: Context) {
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                             RoundedCornerShape(10.dp)
                         )
-                        .clickable { applyVoice(voice.name) }
+                        .clickable {
+                            applyVoice(voice.name)
+                            preview(voice.name)
+                        }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -172,9 +198,9 @@ fun VoiceSettingsCard(context: Context) {
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )
                         Text(
-                            text = voice.locale.displayName + " · " + voice.name,
+                            text = (if (isPersian) "فارسی · " else "") + voice.locale.displayName + " · " + voice.name,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isPersian) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(onClick = { preview(voice.name) }) {
@@ -189,7 +215,7 @@ fun VoiceSettingsCard(context: Context) {
                 }
             }
 
-            if (voices.size > 4) {
+            if (voices.size > 6) {
                 TextButton(onClick = { showAll = !showAll }) {
                     Text(if (showAll) "نمایش کمتر" else "نمایش همه صداها (${voices.size})", color = PersianTurquoise)
                 }
@@ -222,30 +248,34 @@ fun VoiceSettingsCard(context: Context) {
                 }
             }
 
-            Text("زیر و بمی صدا: ${"%.2f".format(pitch)}", style = MaterialTheme.typography.labelSmall)
+            Text("زیر و بمی صدا: ${
+                "%.2f".format(pitch)
+            }", style = MaterialTheme.typography.labelSmall)
             Slider(
                 value = pitch,
                 onValueChange = {
                     pitch = it
-                    store.setTtsPitch(it)
                     try {
                         engine?.setPitch(it)
                     } catch (_: Exception) {
                     }
+                    FokoVoiceCtl.persistAndNotify(context.applicationContext, null, it, null)
                 },
                 valueRange = 0.5f..1.6f
             )
 
-            Text("سرعت گفتار: ${"%.2f".format(rate)}", style = MaterialTheme.typography.labelSmall)
+            Text("سرعت گفتار: ${
+                "%.2f".format(rate)
+            }", style = MaterialTheme.typography.labelSmall)
             Slider(
                 value = rate,
                 onValueChange = {
                     rate = it
-                    store.setTtsRate(it)
                     try {
                         engine?.setSpeechRate(it)
                     } catch (_: Exception) {
                     }
+                    FokoVoiceCtl.persistAndNotify(context.applicationContext, null, null, it)
                 },
                 valueRange = 0.6f..1.6f
             )
@@ -265,7 +295,7 @@ fun VoiceSettingsCard(context: Context) {
 
             Box(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "این صدا در ویجت شناور، دکمه پخش پاسخ در چت و مکالمه زنده استفاده می‌شود.",
+                    text = "این صدا در ویجت شناور، دکمه پخش پاسخ در چت و مکالمه زنده استفاده می‌شود. عددها، علامت‌ها و کلمه‌های انگلیسی پیش از خواندن، خودکار به فارسی برگردانده می‌شوند.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

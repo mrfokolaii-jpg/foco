@@ -55,6 +55,7 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
 import com.example.data.model.SystemPersona
 import com.example.data.remote.AiRouter
+import com.example.util.FokoVoiceCtl
 import com.example.util.SpeechText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -501,22 +502,16 @@ class FokoFloatingOverlayService : Service() {
         }
     }
 
+    /** با هر تغییر صدا در تنظیمات، صدای ویجت شناور هم بلافاصله عوض می‌شود. */
+    private val voiceChangedListener: () -> Unit = { applyVoiceSettings() }
+
     /**
-     * Applies the voice, pitch and speed the user picked in the app's Voice card.
-     * Safe to call repeatedly; every step is optional.
+     * زبان، صدا، زیر‌و‌بمی و سرعت انتخاب‌شده‌ی کاربر را روی موتور اعمال می‌کند.
+     * هر مرحله اختیاری است و صدا زدن چندباره‌اش بی‌خطر است.
      */
     private fun applyVoiceSettings() {
-        try {
-            val engine = tts ?: return
-            val store = ApiKeyStore(applicationContext)
-            val wanted = store.getTtsVoice()
-            if (wanted.isNotBlank()) {
-                engine.voices?.firstOrNull { it.name == wanted }?.let { engine.voice = it }
-            }
-            engine.setPitch(store.getTtsPitch())
-            engine.setSpeechRate(store.getTtsRate())
-        } catch (_: Exception) {
-        }
+        FokoVoiceCtl.register(voiceChangedListener)
+        FokoVoiceCtl.applySettings(applicationContext, tts)
     }
 
     private fun initRecognizer() {
@@ -693,6 +688,10 @@ class FokoFloatingOverlayService : Service() {
         super.onDestroy()
         try {
             recognizer?.destroy()
+        } catch (_: Exception) {
+        }
+        try {
+            FokoVoiceCtl.unregister(voiceChangedListener)
         } catch (_: Exception) {
         }
         try {

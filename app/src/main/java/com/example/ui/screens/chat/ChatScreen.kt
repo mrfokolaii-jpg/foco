@@ -130,6 +130,7 @@ import com.example.data.model.CatalogModel
 import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
 import com.example.ui.screens.connectors.ConnectorAuthDialog
+import com.example.util.FokoVoiceCtl
 import com.example.util.SpeechText
 import com.example.ui.screens.connectors.ConnectorAuthTarget
 import com.example.ui.theme.PersianTurquoise
@@ -197,27 +198,20 @@ fun ChatScreen(
         var ttsInstance: TextToSpeech? = null
         ttsInstance = TextToSpeech(context.applicationContext) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                try {
-                    val result = ttsInstance?.setLanguage(Locale("fa", "IR"))
-                    if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        ttsInstance?.setLanguage(Locale("fa"))
-                    }
-                    // Use the voice the user picked in Tools > صدا.
-                    val voiceStore = com.example.data.local.ApiKeyStore(context.applicationContext)
-                    val preferred = voiceStore.getTtsVoice()
-                    if (preferred.isNotBlank()) {
-                        try {
-                            ttsInstance?.voices?.firstOrNull { it.name == preferred }
-                                ?.let { v -> ttsInstance?.voice = v }
-                        } catch (_: Exception) {}
-                    }
-                    ttsInstance?.setPitch(voiceStore.getTtsPitch())
-                    ttsInstance?.setSpeechRate(voiceStore.getTtsRate())
-                } catch (_: Exception) {}
-                ttsEngine = ttsInstance
+                val engine = ttsInstance
+                if (engine != null) {
+                    FokoVoiceCtl.applySettings(context.applicationContext, engine)
+                    ttsEngine = engine
+                }
             }
         }
+        // با هر تغییر صدا در کارت تنظیمات، صدای همین صفحه هم بلافاصله عوض می‌شود.
+        val onVoiceChanged: () -> Unit = {
+            FokoVoiceCtl.applySettings(context.applicationContext, ttsInstance)
+        }
+        FokoVoiceCtl.register(onVoiceChanged)
         onDispose {
+            FokoVoiceCtl.unregister(onVoiceChanged)
             ttsInstance?.stop()
             ttsInstance?.shutdown()
         }
