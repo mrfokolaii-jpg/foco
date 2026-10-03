@@ -64,6 +64,25 @@ object AiModelCatalog {
         isRecommended = true
     )
 
+    /** Prefix for a model fetched live from the provider with the user's own key. */
+    const val LIVE_ID_PREFIX = "live:"
+
+    /**
+     * مدلی که مستقیم از فهرست خودِ سرویس با کلید کاربر خوانده شده است.
+     *
+     * هیچ نامی حدس زده نمی‌شود: [apiModelId] عیناً همان چیزی است که سرور برگردانده،
+     * پس دیگر پیش نمی‌آید که اپ مدلی را صدا بزند که کلید کاربر به آن دسترسی ندارد
+     * (خطای «not supported by any provider you have enabled» از همین‌جا می‌آمد).
+     */
+    fun live(provider: AiProviderKind, modelId: String): CatalogModel = CatalogModel(
+        id = LIVE_ID_PREFIX + provider.name + ":" + modelId,
+        title = modelId,
+        subtitle = modelId,
+        provider = provider,
+        apiModelId = modelId,
+        badge = provider.persianTitle
+    )
+
     /** Prefix for a Gemini model that came straight from the user's own key. */
     const val GEMINI_ID_PREFIX = "gemini:"
 

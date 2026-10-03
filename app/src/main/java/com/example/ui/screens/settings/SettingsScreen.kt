@@ -49,6 +49,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +65,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -84,7 +86,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.connectors.ConnectorStore
 import com.example.data.local.ApiKeySnapshot
 import com.example.data.local.ApiKeyStore
+import com.example.data.model.AiProviderKind
 import com.example.data.model.CustomProvider
+import com.example.data.remote.ApiResult
+import com.example.data.remote.ProviderDiagnostics
 import com.example.service.FokoAccessibilityService
 import com.example.service.FokoFloatingOverlayService
 import com.example.ui.theme.PersianTurquoise
@@ -353,6 +358,122 @@ fun SettingsScreen(
                     color = PersianTurquoise
                 )
 
+                // ---- تست واقعی همهٔ سرویس‌ها ----------------------------------
+                // «کلید گذاشتم ولی کار نمی‌کند» با حدس حل نمی‌شود؛ این دکمه به هر
+                // سرویس وصل می‌شود و پیام خودِ سرور را نشان می‌دهد.
+                val scope = rememberCoroutineScope()
+                var testing by remember { mutableStateOf(false) }
+                var results by remember { mutableStateOf<List<ProviderCheck>>(emptyList()) }
+
+                Button(
+                    onClick = {
+                        testing = true
+                        results = emptyList()
+                        scope.launch {
+                            val store = ApiKeyStore(context)
+                            val targets = buildList {
+                                if (uiState.gemini.isNotBlank()) add(
+                                    ProviderCheck("Google Gemini", AiProviderKind.GEMINI, "", "")
+                                )
+                                if (uiState.huggingFace.isNotBlank()) add(
+                                    ProviderCheck("Hugging Face", AiProviderKind.HUGGINGFACE, "", "")
+                                )
+                                if (uiState.openRouter.isNotBlank()) add(
+                                    ProviderCheck("OpenRouter", AiProviderKind.OPENROUTER, "", "")
+                                )
+                                if (uiState.groq.isNotBlank()) add(
+                                    ProviderCheck("Groq", AiProviderKind.GROQ, "", "")
+                                )
+                                if (uiState.xaiGrok.isNotBlank()) add(
+                                    ProviderCheck("xAI Grok", AiProviderKind.XAI_GROK, "", "")
+                                )
+                                if (uiState.snapshot.nineRouterConfigured) add(
+                                    ProviderCheck(
+                                        "9Router",
+                                        AiProviderKind.NINE_ROUTER,
+                                        store.getNineRouterBaseUrl(),
+                                        store.getNineRouterModel()
+                                    )
+                                )
+                                uiState.customProviders.forEach { provider ->
+                                    add(
+                                        ProviderCheck(
+                                            label = provider.label,
+                                            provider = AiProviderKind.CUSTOM,
+                                            baseUrl = provider.baseUrl,
+                                            model = provider.model,
+                                            // هر سرویس دستی کلید خودش را دارد، نه کلید اولی.
+                                            key = provider.apiKey
+                                        )
+                                    )
+                                }
+                            }
+
+                            val out = mutableListOf<ProviderCheck>()
+                            targets.forEach { target ->
+                                val outcome = try {
+                                    ProviderDiagnostics.check(
+                                        target.provider,
+                                        target.key.ifBlank { store.keyFor(target.provider) },
+                                        target.baseUrl,
+                                        target.model
+                                    )
+                                } catch (error: Exception) {
+                                    ApiResult.Error(error.localizedMessage ?: "خطای نامشخص")
+                                }
+                                out.add(
+                                    target.copy(
+                                        result = when (outcome) {
+                                            is ApiResult.Success -> "✓ " + outcome.data
+                                            is ApiResult.Error -> "✗ " + outcome.message
+                                        },
+                                        ok = outcome is ApiResult.Success
+                                    )
+                                )
+                            }
+                            results = out
+                            testing = false
+                        }
+                    },
+                    enabled = !testing,
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
+                ) {
+                    if (testing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.Black
+                        )
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.Black)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (testing) "در حال تست همهٔ سرویس‌ها..." else "تست همهٔ سرویس‌ها",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                results.forEach { check ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = check.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = if (check.ok) PersianTurquoise else MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = check.result,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 // هوش مصنوعی داخلی فوکو کاملاً حذف شد؛ به‌جای آن اگر هیچ سرویسی وصل
                 // نباشد صریح گفته می‌شود.
                 if (uiState.customProviders.isEmpty() && !uiState.snapshot.hasAny()) {
@@ -379,8 +500,8 @@ fun SettingsScreen(
                 }
 
                 ProviderStatusRow(
-                    title = "Hugging Face (کیوون Qwen 2.5, DeepSeek R1)",
-                    subtitle = if (uiState.snapshot.huggingFaceConfigured) "فعال و آماده گفتگو" else "کلید وارد نشده",
+                    title = "Hugging Face (روتر استنتاج)",
+                    subtitle = if (uiState.snapshot.huggingFaceConfigured) "کلید ذخیره شد — فهرست مدل‌های همین کلید خوانده می‌شود" else "کلید وارد نشده",
                     isActive = uiState.snapshot.huggingFaceConfigured
                 )
 
@@ -391,8 +512,8 @@ fun SettingsScreen(
                 )
 
                 ProviderStatusRow(
-                    title = "OpenRouter (مدل‌های رایگان و متنوع)",
-                    subtitle = if (uiState.snapshot.openRouterConfigured) "فعال و آماده ۴ مدل" else "کلید وارد نشده",
+                    title = "OpenRouter (مدل‌های متنوع)",
+                    subtitle = if (uiState.snapshot.openRouterConfigured) "کلید ذخیره شد — فهرست مدل‌های همین کلید خوانده می‌شود" else "کلید وارد نشده",
                     isActive = uiState.snapshot.openRouterConfigured
                 )
 
@@ -646,6 +767,18 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
+
+/** یک سرویس برای «تست اتصال»، به‌همراه نتیجه‌ای که از سرور برگشته است. */
+private data class ProviderCheck(
+    val label: String,
+    val provider: AiProviderKind,
+    val baseUrl: String = "",
+    val model: String = "",
+    /** کلید مخصوص همین سرویس؛ خالی باشد از مخزن کلیدها خوانده می‌شود. */
+    val key: String = "",
+    val result: String = "",
+    val ok: Boolean = false
+)
 
 @Composable
 fun ProviderStatusRow(title: String, subtitle: String, isActive: Boolean) {

@@ -17,8 +17,26 @@ object GeminiModels {
 
     private const val ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    suspend fun list(apiKey: String): List<String> = withContext(Dispatchers.IO) {
-        if (apiKey.isBlank()) return@withContext emptyList()
+    /** آخرین فهرست خوانده‌شده و کلیدی که با آن خوانده شده — برای پرش خودکار به مدل بعدی. */
+    @Volatile
+    private var cachedKey: String = ""
+
+    @Volatile
+    private var cachedIds: List<String> = emptyList()
+
+    suspend fun list(apiKey: String): List<String> = when (val result = listDetailed(apiKey)) {
+        is ApiResult.Success -> result.data
+        is ApiResult.Error -> emptyList()
+    }
+
+    /**
+     * مانند [list] ولی خطای واقعی گوگل را هم برمی‌گرداند (کلید غلط، سهمیه، خطای شبکه).
+     * بدون این، همهٔ خطاها به «لیست خالی» تبدیل می‌شدند و کاربر نمی‌فهمید چرا.
+     */
+    suspend fun listDetailed(apiKey: String): ApiResult<List<String>> = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) {
+            return@withContext ApiResult.Error("کلید Gemini وارد نشده است.")
+        }
         try {
             val url = "$ENDPOINT?key=${URLEncoder.encode(apiKey, "UTF-8")}&pageSize=200"
             val request = Request.Builder()
@@ -29,10 +47,20 @@ object GeminiModels {
 
             ProviderHttp.client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) return@withContext emptyList()
+                if (!response.isSuccessful) {
+                    val raw = ProviderHttp.rawMessage(body)
+                    val hint = if (response.code == 400 || response.code == 403) {
+                        "کلید Gemini پذیرفته نشد."
+                    } else {
+                        "گوگل فهرست مدل‌ها را نداد (${response.code})."
+                    }
+                    return@withContext ApiResult.Error(
+                        if (raw.isBlank()) hint else "$hint\nپیام گوگل: $raw"
+                    )
+                }
 
                 val models = JSONObject(body).optJSONArray("models") ?: JSONArray()
-                (0 until models.length()).mapNotNull { index ->
+                val ids = (0 until models.length()).mapNotNull { index ->
                     val model = models.optJSONObject(index) ?: return@mapNotNull null
                     val methods = model.optJSONArray("supportedGenerationMethods") ?: JSONArray()
                     val canChat = (0 until methods.length()).any {
@@ -46,10 +74,58 @@ object GeminiModels {
                     .distinct()
                     // مدل‌های واقعی گفتگوگوی gemini اول می‌آیند و در میان آن‌ها نسخهٔ بالاتر جلوتر.
                     .sortedWith(compareBy<String>({ chatRank(it) }, { -versionOf(it) }, { it }))
+
+                if (ids.isEmpty()) {
+                    ApiResult.Error("گوگل برای این کلید هیچ مدل گفتگویی برنگرداند.")
+                } else {
+                    cachedKey = apiKey
+                    cachedIds = ids
+                    ApiResult.Success(ids)
+                }
             }
-        } catch (_: Exception) {
-            emptyList()
+        } catch (e: Exception) {
+            ApiResult.Error("اتصال به گوگل برقرار نشد: ${e.localizedMessage ?: "خطای شبکه"}")
         }
+    }
+
+    /**
+     * مدل‌هایی که برای «پرش خودکار» روی مدل بعدی مناسب‌اند.
+     *
+     * مدل‌های تصویر، گفتار (TTS)، رونویسی، موسیقی و ویژه‌کارها کنار گذاشته می‌شوند،
+     * چون اگر سرور شلوغ باشد و اپ به یکی از آن‌ها پناه ببرد، خطای تازه‌ای می‌گیریم.
+     */
+    fun cachedChatModelIds(): List<String> = cachedIds.filterNot { it.isSpecialPurpose() }
+
+    fun cachedApiKey(): String = cachedKey
+
+    /** اگر فهرست این کلید را نداریم، یک‌بار می‌گیرد؛ در غیر این صورت از حافظه می‌خواند. */
+    suspend fun ensure(apiKey: String): List<String> {
+        if (apiKey.isBlank()) return emptyList()
+        if (apiKey == cachedKey && cachedIds.isNotEmpty()) return cachedChatModelIds()
+        return when (val result = listDetailed(apiKey)) {
+            is ApiResult.Success -> result.data.filterNot { it.isSpecialPurpose() }
+            is ApiResult.Error -> emptyList()
+        }
+    }
+
+    private fun String.isSpecialPurpose(): Boolean {
+        val n = lowercase()
+        return listOf(
+            "tts", "image", "transcribe", "audio", "lyria", "veo",
+            "embedding", "aqa", "robotics", "computer", "antigravity",
+            "deep-research", "-live", "native-audio"
+        ).any { n.contains(it) }
+    }
+
+    /**
+     * نسخهٔ مدل از روی شناسه — `gemini-3.5-flash-lite` → 3.5 و `gemini-3.1-pro` → 3.1.
+     * مدل‌های بدون شمارهٔ نسخه صفر می‌گیرند و آخر می‌ایستند.
+     */
+    private fun versionOf(name: String): Double {
+        val match = Regex("""gemini-(\d+)(?:\.(\d+))?""").find(name) ?: return 0.0
+        val major = match.groupValues[1].toDoubleOrNull() ?: 0.0
+        val minor = match.groupValues[2].toDoubleOrNull() ?: 0.0
+        return major + minor / 10.0
     }
 
     /**
@@ -62,17 +138,6 @@ object GeminiModels {
      *   ۱ = gemini پیش‌نمایشی یا آزمایشی
      *   ۲ = بقیهٔ مدل‌ها
      */
-    /**
-     * نسخهٔ مدل از روی شناسه — `gemini-3.5-flash-lite` → 3.5 و `gemini-3.1-pro` → 3.1.
-     * مدل‌های بدون شمارهٔ نسخه صفر می‌گیرند و آخر می‌ایستند.
-     */
-    private fun versionOf(name: String): Double {
-        val match = Regex("""gemini-(\d+)(?:\.(\d+))?""").find(name) ?: return 0.0
-        val major = match.groupValues[1].toDoubleOrNull() ?: 0.0
-        val minor = match.groupValues[2].toDoubleOrNull() ?: 0.0
-        return major + minor / 10.0
-    }
-
     private fun chatRank(name: String): Int {
         val isGemini = name.startsWith("gemini-")
         val isUnstable = name.contains("preview", ignoreCase = true) ||

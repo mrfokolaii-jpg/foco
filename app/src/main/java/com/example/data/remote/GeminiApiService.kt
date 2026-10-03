@@ -10,6 +10,7 @@ import com.example.data.model.MessageSender
 import com.example.data.model.MusicGenerationConfig
 import com.example.data.model.VideoGenerationConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -72,8 +73,20 @@ object GeminiApiService {
         return getApiKey().isNotBlank()
     }
 
+    /** نتیجهٔ یک تلاش: کد وضعیت (اگر خطای HTTP بود) و پاسخ. */
+    private data class ChatAttempt(val code: Int?, val result: ApiResult<ChatApiResponse>)
+
+    /** چند مدل مختلف را امتحان کنیم و برای هر مدل چند بار. */
+    private const val MAX_MODEL_ATTEMPTS = 3
+    private const val ATTEMPTS_PER_MODEL = 2
+    private const val RETRY_DELAY_MS = 700L
+
     /**
      * Multi-turn chat generation with support for thinking mode and Google Search Grounding.
+     *
+     * اگر سرور شلوغ باشد (429/5xx) یا مدل برای این کلید در دسترس نباشد (404)، خودش
+     * چند بار تلاش می‌کند و بعد روی مدل بعدیِ همان کلید می‌پرد. پیش‌تر یک تلاش خشک و
+     * خالی بود: کاربر فقط «سرور شلوغ است» می‌دید و کارش راه نمی‌افتاد.
      */
     suspend fun generateChatResponse(
         conversationHistory: List<ChatMessage>,
@@ -81,6 +94,8 @@ object GeminiApiService {
         selectedModel: AiModelOption,
         /** شناسهٔ دقیق مدلی که کاربر انتخاب کرده (مثلاً gemini-3.8-flash). */
         modelIdOverride: String = "",
+        /** مدل‌های دیگری که همین کلید دارد — جانشین‌های پرش خودکار. */
+        fallbackModelIds: List<String> = emptyList(),
         enableThinkingMode: Boolean = false,
         enableGoogleSearch: Boolean = false
     ): ApiResult<ChatApiResponse> = withContext(Dispatchers.IO) {
@@ -99,6 +114,60 @@ object GeminiApiService {
             else -> selectedModel.modelId
         }
 
+        // مدل انتخاب‌شده اول صف است و بعد جانشین‌ها.
+        val queue = (listOf(effectiveModel) + fallbackModelIds)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(MAX_MODEL_ATTEMPTS)
+
+        var lastError: ApiResult.Error = ApiResult.Error("پاسخی از مدل هوش مصنوعی دریافت نشد.")
+
+        queue.forEachIndexed { index, model ->
+            var attempt = 0
+            while (attempt < ATTEMPTS_PER_MODEL) {
+                val outcome = attemptOnce(
+                    apiKey = apiKey,
+                    model = model,
+                    conversationHistory = conversationHistory,
+                    systemInstructionText = systemInstructionText,
+                    enableThinkingMode = enableThinkingMode,
+                    enableGoogleSearch = enableGoogleSearch
+                )
+                if (outcome.result is ApiResult.Success) return@withContext outcome.result
+
+                lastError = outcome.result as ApiResult.Error
+                val code = outcome.code
+                // فقط خطاهای گذرا ارزش تلاش دوباره دارند. کلید غلط یا درخواست بد
+                // را نباید سه بار پشت سر هم تکرار کرد.
+                val transient = code == null || code == 429 || code == 404 || code in 500..599
+                if (!transient) return@withContext lastError
+                attempt++
+                if (attempt < ATTEMPTS_PER_MODEL) delay(RETRY_DELAY_MS * attempt)
+            }
+            if (index < queue.lastIndex) delay(RETRY_DELAY_MS)
+        }
+
+        val tried = if (queue.size > 1) {
+            "\n\n${queue.size} مدلِ این کلید امتحان شد (آخرین: ${queue.last()})."
+        } else {
+            ""
+        }
+        ApiResult.Error("همهٔ تلاش‌ها ناموفق بود.\n" + lastError.message + tried)
+    }
+
+    /**
+     * یک درخواست کامل به گوگل. کد وضعیت هم برگردانده می‌شود تا تصمیم «تلاش دوباره یا
+     * پرش به مدل بعدی» ممکن باشد.
+     */
+    private suspend fun attemptOnce(
+        apiKey: String,
+        model: String,
+        conversationHistory: List<ChatMessage>,
+        systemInstructionText: String,
+        enableThinkingMode: Boolean,
+        enableGoogleSearch: Boolean
+    ): ChatAttempt = withContext(Dispatchers.IO) {
         try {
             val requestJson = JSONObject()
 
@@ -155,7 +224,7 @@ object GeminiApiService {
             val genConfig = JSONObject()
             genConfig.put("temperature", if (enableThinkingMode) 0.4 else 0.7)
 
-            if (enableThinkingMode && effectiveModel == GeminiModelConstants.MODEL_PRO) {
+            if (enableThinkingMode && model == GeminiModelConstants.MODEL_PRO) {
                 val thinkingConfig = JSONObject()
                 thinkingConfig.put("thinkingLevel", "HIGH")
                 genConfig.put("thinkingConfig", thinkingConfig)
@@ -172,7 +241,7 @@ object GeminiApiService {
                 requestJson.put("tools", toolsArray)
             }
 
-            val endpoint = "$BASE_URL$effectiveModel:generateContent?key=$apiKey"
+            val endpoint = "$BASE_URL$model:generateContent?key=$apiKey"
             val request = Request.Builder()
                 .url(endpoint)
                 .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -182,15 +251,20 @@ object GeminiApiService {
             val responseBody = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                Log.e(TAG, "Chat API failed ($effectiveModel): code=${response.code}, body=$responseBody")
-                val errorMessage = parseErrorMessage(responseBody, response.code)
-                return@withContext ApiResult.Error(errorMessage)
+                Log.e(TAG, "Chat API failed ($model): code=${response.code}, body=$responseBody")
+                return@withContext ChatAttempt(
+                    response.code,
+                    ApiResult.Error(parseErrorMessage(responseBody, response.code))
+                )
             }
 
             val parsedJson = JSONObject(responseBody)
             val candidates = parsedJson.optJSONArray("candidates")
             if (candidates == null || candidates.length() == 0) {
-                return@withContext ApiResult.Error("پاسخی از مدل هوش مصنوعی دریافت نشد.")
+                return@withContext ChatAttempt(
+                    null,
+                    ApiResult.Error("مدل «$model» پاسخی برنگرداند. یک مدل دیگر را امتحان کن.")
+                )
             }
 
             val firstCandidate = candidates.getJSONObject(0)
@@ -237,17 +311,23 @@ object GeminiApiService {
                 mainText = "پاسخ با موفقیت پردازش شد اما متنی بازگردانده نشد."
             }
 
-            ApiResult.Success(
-                ChatApiResponse(
-                    replyText = mainText,
-                    thinkingText = thinkingText,
-                    searchSources = sources.distinctBy { it.uri },
-                    modelUsed = effectiveModel
+            ChatAttempt(
+                null,
+                ApiResult.Success(
+                    ChatApiResponse(
+                        replyText = mainText,
+                        thinkingText = thinkingText,
+                        searchSources = sources.distinctBy { it.uri },
+                        modelUsed = model
+                    )
                 )
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error in generateChatResponse", e)
-            ApiResult.Error("خطا در برقراری ارتباط با سرور هوش مصنوعی: ${e.localizedMessage ?: e.message}")
+            ChatAttempt(
+                null,
+                ApiResult.Error("خطا در برقراری ارتباط با سرور هوش مصنوعی: ${e.localizedMessage ?: e.message}")
+            )
         }
     }
 
@@ -506,21 +586,23 @@ object GeminiApiService {
             }
         }
 
+    /**
+     * پیام خطای گوگل را به فارسی توضیح می‌دهد و **متن خود سرور را هم نگه می‌دارد**.
+     *
+     * پیش‌تر برای ۵۰۰/۵۰۳ متن واقعی دور ریخته می‌شد و کاربر فقط «سرور شلوغ است»
+     * می‌دید؛ بدون متن گوگل نمی‌شد فهمید مشکل سهمیه است، مدل است یا کلید.
+     */
     private fun parseErrorMessage(responseBody: String, statusCode: Int): String {
-        return try {
-            val json = JSONObject(responseBody)
-            val errorObj = json.optJSONObject("error")
-            val rawMsg = errorObj?.optString("message") ?: "کد خطای سرور: $statusCode"
-            when (statusCode) {
-                400 -> "درخواست نامعتبر است: $rawMsg"
-                403 -> "دسترسی به این مدل با کلید فعلی امکان‌پذیر نیست یا سهمیه تمام شده است."
-                404 -> "مدل درخواستی یافت نشد یا در دسترس نیست."
-                429 -> "محدودیت تعداد درخواست در دقیقه (Rate Limit). لطفاً چند لحظه صبر نمایید."
-                500, 503 -> "سرورهای هوش مصنوعی موقتاً در حال پردازش سنگین هستند. لطفاً دوباره تلاش کنید."
-                else -> rawMsg
-            }
-        } catch (e: Exception) {
-            "خطای سرور ($statusCode)"
+        val rawMsg = ProviderHttp.rawMessage(responseBody)
+        val main = when (statusCode) {
+            400 -> "درخواست نامعتبر بود (400)."
+            401 -> "کلید Gemini پذیرفته نشد (401)."
+            403 -> "دسترسی این کلید به این مدل بسته است یا سهمیه تمام شده (403)."
+            404 -> "این مدل برای کلید تو در دسترس نیست (404)."
+            429 -> "سهمیهٔ درخواست پر شده است (429)."
+            500, 503 -> "سرورهای گوگل موقتاً در حال پردازش سنگین هستند ($statusCode)."
+            else -> "خطای سرور ($statusCode)."
         }
+        return if (rawMsg.isBlank()) main else "$main\nپیام گوگل: $rawMsg"
     }
 }

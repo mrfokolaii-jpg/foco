@@ -27,8 +27,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -134,8 +132,6 @@ import com.example.data.connectors.ConnectorStore
 import com.example.data.connectors.GitHubConnector
 import com.example.data.connectors.HuggingFaceConnector
 import com.example.data.local.ChatConversationEntity
-import com.example.data.model.AiModelCatalog
-import com.example.data.model.AiProviderKind
 import com.example.data.model.CatalogModel
 import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
@@ -791,140 +787,17 @@ fun ChatScreen(
         }
     }
 
-    // Dynamic Select Model Bottom Sheet
+    // Dynamic Select Model Bottom Sheet — فهرست هر سرویس با کلید خودِ کاربر خوانده می‌شود.
     if (showModelSelectorSheet) {
-        val snapshot = viewModel.getKeySnapshot()
-        val activeModels = AiModelCatalog.activeModels(snapshot)
-
-        // Gemini models come from the user's own key, never from a hard-coded list.
-        var geminiModels by remember { mutableStateOf<List<com.example.data.model.CatalogModel>>(emptyList()) }
-        LaunchedEffect(snapshot.geminiConfigured) {
-            geminiModels = if (snapshot.geminiConfigured) {
-                val geminiKey = com.example.data.local.ApiKeyStore(context.applicationContext).getGeminiKey()
-                com.example.data.remote.GeminiModels.list(geminiKey)
-                    // سقف ۶۰ تایی تا فهرست بتواند ۴۰ تا ۵۰ مدل را نشان دهد و
-                    // مدل‌های gemini با take() حذف نشوند.
-                    .take(60)
-                    .map { AiModelCatalog.gemini(it) }
-            } else {
-                emptyList()
+        ModelSelectorSheet(
+            selectedModelId = uiState.selectedCatalogModel.id,
+            onSelect = { model -> viewModel.selectCatalogModel(model) },
+            onDismiss = { showModelSelectorSheet = false },
+            onOpenSettings = {
+                showModelSelectorSheet = false
+                onNavigateToScreen("settings")
             }
-        }
-
-        ModalBottomSheet(
-            onDismissRequest = { showModelSelectorSheet = false },
-            sheetState = rememberModalBottomSheetState()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // فهرست مدل‌ها می‌تواند ۴۰ تا ۵۰ مورد باشد؛ بدون اسکرول، بقیه دیده نمی‌شد.
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "انتخاب هوش مصنوعی (Select Model):",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                // گزینهٔ «Auto» کاملاً حذف شد؛ همهٔ سرویس‌های وصل‌شده مستقیم فهرست می‌شوند
-                // و کاربر خودش مدل را انتخاب می‌کند.
-                val nonGeminiActive = activeModels.filter {
-                    it.provider != AiProviderKind.GEMINI
-                }
-                if (nonGeminiActive.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "مدل‌های فعال تو (${nonGeminiActive.size} مدل):",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = PersianTurquoise
-                    )
-
-                    nonGeminiActive.forEach { model ->
-                        val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
-                        ModelOptionCard(
-                            title = model.title,
-                            tag = model.badge,
-                            isSelected = isSelected,
-                            onClick = {
-                                viewModel.selectCatalogModel(model)
-                                showModelSelectorSheet = false
-                            }
-                        )
-                    }
-                }
-
-                // Gemini — shown ONLY when a key exists, and the list is fetched from that key.
-                // With no key there is nothing here at all: no pre-stored model names.
-                if (snapshot.geminiConfigured) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "مدل‌های موجود با کلید Gemini تو:",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = PersianTurquoise
-                    )
-                    if (geminiModels.isEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = PersianTurquoise
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "در حال واکشی لیست از گوگل...",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    geminiModels.forEach { model ->
-                        val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
-                        ModelOptionCard(
-                            title = model.title,
-                            tag = "Gemini",
-                            isSelected = isSelected,
-                            onClick = {
-                                viewModel.selectCatalogModel(model)
-                                showModelSelectorSheet = false
-                            }
-                        )
-                    }
-                }
-
-                // Every hand-wired service the user added in Settings.
-                val manualModels = AiModelCatalog.customModels(
-                    com.example.data.local.ApiKeyStore(context.applicationContext).getCustomProviders()
-                )
-                if (manualModels.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "سرویس‌های دستی تو (${manualModels.size}):",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = PersianTurquoise
-                    )
-                    manualModels.forEach { model ->
-                        val isSelected = !uiState.isAutoMode && uiState.selectedCatalogModel.id == model.id
-                        ModelOptionCard(
-                            title = model.title,
-                            tag = model.badge,
-                            isSelected = isSelected,
-                            onClick = {
-                                viewModel.selectCatalogModel(model)
-                                showModelSelectorSheet = false
-                            }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
+        )
     }
 
     // Plugins / Connectors Bottom Sheet
@@ -1358,68 +1231,6 @@ private fun RoundIconButton(
             tint = if (enabled) tint else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
             modifier = Modifier.size(18.dp)
         )
-    }
-}
-
-/**
- * کارت مدل — عمداً کوچک و ساده: فقط یک ردیف با نام مدل.
- * توصیف‌های بلند حذف شده‌اند تا فهرست ۴۰ تا ۵۰ مدلی جمع‌وجمع بماند.
- */
-@Composable
-fun ModelOptionCard(
-    title: String,
-    tag: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) PersianTurquoise.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
-        ),
-        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, PersianTurquoise) else null
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // نام مدل فضای باقی‌مانده را می‌گیرد و برچسب و تیک به انتهای ردیف می‌روند.
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f),
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isSelected) PersianTurquoise else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shape = RoundedCornerShape(6.dp)
-            ) {
-                Text(
-                    text = tag,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
-            if (isSelected) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "انتخاب شده",
-                    tint = PersianTurquoise,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-        }
     }
 }
 

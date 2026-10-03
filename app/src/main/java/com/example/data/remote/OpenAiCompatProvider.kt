@@ -21,22 +21,53 @@ object ProviderHttp {
         .writeTimeout(65, TimeUnit.SECONDS)
         .build()
 
-    fun mapStatus(code: Int, body: String): String {
-        return when (code) {
-            401, 403 -> "کلید نامعتبر است یا منقضی شده. لطفاً کلید صحیح را از سایت سازنده دریافت کنید."
-            404 -> "مدل انتخابی در دسترس نیست. مدل دیگری را انتخاب کنید."
-            429 -> "سهمیه یا محدودیت نرخ پر شده است. لطفاً چند لحظه بعد تلاش کنید."
-            in 500..599 -> "سرور هوش مصنوعی موقتاً پاسخگو نیست. لطفاً دوباره تلاش کنید."
-            else -> {
-                val parsed = try {
-                    JSONObject(body).optJSONObject("error")?.optString("message")
-                } catch (_: Exception) {
-                    null
-                }
-                parsed?.takeIf { it.isNotBlank() } ?: "خطای سرور ($code)"
+    /**
+     * پیام خام خودِ سرور را از بدنهٔ پاسخ بیرون می‌کشد.
+     *
+     * بعضی سرویس‌ها خطا را به شکل `{"error": "متن"}` می‌فرستند و بعضی
+     * `{"error": {"message": "متن"}}`. هر دو حالت پوشش داده می‌شود تا هیچ‌وقت
+     * دلیل واقعیِ خطا پنهان نماند.
+     */
+    fun rawMessage(body: String): String {
+        val text = try {
+            val obj = JSONObject(body)
+            when (val err = obj.opt("error")) {
+                is JSONObject -> err.optString("message").ifBlank { err.toString() }
+                is String -> err
+                else -> obj.optString("message").ifBlank { obj.optString("detail") }
             }
+        } catch (_: Exception) {
+            body.trim().take(200)
         }
+        return text.trim().take(400)
     }
+
+    /**
+     * کد وضعیت را به پیام فارسی تبدیل می‌کند و **متن خود سرور را هم می‌چسباند**.
+     * پیش‌تر متن سرور حذف می‌شد و کاربر فقط «خطای سرور (402)» می‌دید؛ بدون این متن
+     * نمی‌شد فهمید مشکل کلید است، اعتبار است یا محدودیت نرخ.
+     */
+    fun mapStatus(code: Int, body: String): String {
+        val main = when (code) {
+            401 -> "کلید پذیرفته نشد (401)."
+            402 -> "این کلید اعتبار کافی ندارد (402)."
+            403 -> "این کلید اجازهٔ دسترسی به این مدل را ندارد (403)."
+            404 -> "این مدل برای کلید تو در دسترس نیست (404)."
+            429 -> "سهمیه یا محدودیت نرخ پر شده است (429)."
+            in 500..599 -> "سرور سرویس‌دهنده موقتاً پاسخگو نیست ($code)."
+            else -> "خطای سرور ($code)."
+        }
+        val raw = rawMessage(body)
+        return if (raw.isBlank()) main else "$main\nپیام سرور: $raw"
+    }
+}
+
+/** آدرس پایهٔ هر سرویس — هم برای گفتگو و هم برای خواندن فهرست مدل‌ها. */
+object ProviderEndpoints {
+    const val HUGGING_FACE = "https://router.huggingface.co/v1"
+    const val OPENROUTER = "https://openrouter.ai/api/v1"
+    const val GROQ = "https://api.groq.com/openai/v1"
+    const val XAI = "https://api.x.ai/v1"
 }
 
 object OpenAiCompatProvider {
@@ -46,9 +77,21 @@ object OpenAiCompatProvider {
      * name instead of typing one from memory. Returns an empty list on any failure.
      */
     suspend fun listModels(baseUrl: String, apiKey: String): List<String> =
+        when (val result = listModelsDetailed(baseUrl, apiKey)) {
+            is ApiResult.Success -> result.data
+            is ApiResult.Error -> emptyList()
+        }
+
+    /**
+     * همان کار بالا، ولی خطای واقعی سرور را هم برمی‌گرداند.
+     *
+     * این‌جا مشخص می‌شود چرا یک کلید کار نمی‌کند: ۴۰۱ یعنی کلید غلط، ۴۰۲ یعنی اعتبار
+     * تمام شده (مورد Hugging Face)، ۴۰۳ یعنی دسترسی به سرویس استنتاج بسته است.
+     */
+    suspend fun listModelsDetailed(baseUrl: String, apiKey: String): ApiResult<List<String>> =
         withContext(Dispatchers.IO) {
             val base = baseUrl.trim().trimEnd('/')
-            if (base.isBlank()) return@withContext emptyList()
+            if (base.isBlank()) return@withContext ApiResult.Error("آدرس سرویس خالی است.")
             val modelsUrl = if (base.endsWith("/models")) base else "$base/models"
             try {
                 val builder = Request.Builder()
@@ -58,14 +101,21 @@ object OpenAiCompatProvider {
                 if (apiKey.isNotBlank()) builder.addHeader("Authorization", "Bearer $apiKey")
                 ProviderHttp.client.newCall(builder.build()).execute().use { res ->
                     val body = res.body?.string().orEmpty()
-                    if (!res.isSuccessful) return@withContext emptyList()
+                    if (!res.isSuccessful) {
+                        return@withContext ApiResult.Error(ProviderHttp.mapStatus(res.code, body))
+                    }
                     val arr = JSONObject(body).optJSONArray("data") ?: JSONArray()
-                    (0 until arr.length()).mapNotNull { i ->
+                    val ids = (0 until arr.length()).mapNotNull { i ->
                         arr.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() }
                     }.sorted()
+                    if (ids.isEmpty()) {
+                        ApiResult.Error("سرور جواب داد ولی هیچ مدلی برنگرداند.")
+                    } else {
+                        ApiResult.Success(ids)
+                    }
                 }
-            } catch (_: Exception) {
-                emptyList()
+            } catch (e: Exception) {
+                ApiResult.Error("اتصال برقرار نشد: ${e.localizedMessage ?: "خطای شبکه"}")
             }
         }
 
@@ -214,7 +264,9 @@ object OpenAiCompatProvider {
 }
 
 object XaiGrokProvider {
-    private const val ENDPOINT = "https://api.x.ai/v1/chat/completions"
+    /** آدرس پایه — هم برای گفتگو، هم برای خواندن فهرست مدل‌های همین کلید. */
+    const val BASE_URL = ProviderEndpoints.XAI
+    private const val ENDPOINT = "$BASE_URL/chat/completions"
 
     suspend fun chat(
         apiKey: String,
@@ -233,7 +285,13 @@ object XaiGrokProvider {
 }
 
 object HuggingFaceProvider {
-    private const val ENDPOINT = "https://router.huggingface.co/v1/chat/completions"
+    /**
+     * روتر Hugging Face. فهرست مدل‌های همین آدرس با کلید کاربر خوانده می‌شود،
+     * چون هر کلید فقط به بخشی از مدل‌ها دسترسی دارد (خطای «not supported by any
+     * provider you have enabled» از همین‌جا می‌آمد).
+     */
+    const val BASE_URL = ProviderEndpoints.HUGGING_FACE
+    private const val ENDPOINT = "$BASE_URL/chat/completions"
 
     suspend fun chat(
         apiKey: String,
@@ -252,7 +310,9 @@ object HuggingFaceProvider {
 }
 
 object OpenRouterProvider {
-    private const val ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    /** آدرس پایه — هم برای گفتگو، هم برای خواندن فهرست مدل‌های همین کلید. */
+    const val BASE_URL = ProviderEndpoints.OPENROUTER
+    private const val ENDPOINT = "$BASE_URL/chat/completions"
 
     suspend fun chat(
         apiKey: String,
@@ -275,7 +335,9 @@ object OpenRouterProvider {
 }
 
 object GroqProvider {
-    private const val ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
+    /** آدرس پایه — هم برای گفتگو، هم برای خواندن فهرست مدل‌های همین کلید. */
+    const val BASE_URL = ProviderEndpoints.GROQ
+    private const val ENDPOINT = "$BASE_URL/chat/completions"
 
     suspend fun chat(
         apiKey: String,

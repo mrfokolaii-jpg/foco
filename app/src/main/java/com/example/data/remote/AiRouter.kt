@@ -119,6 +119,9 @@ object AiRouter {
                     // پیش‌تر این مقدار نادیده گرفته می‌شد و همهٔ مدل‌های Gemini به یک مدل
                     // ثابت (فلش) می‌رسیدند؛ نتیجه این بود که همه یک جواب می‌دادند.
                     modelIdOverride = catalogModel.apiModelId,
+                    // اگر این مدل شلوغ بود یا برای این کلید بسته بود، روی مدل بعدیِ همین
+                    // کلید می‌پرد. فهرست از خودِ گوگل و با همین کلید خوانده می‌شود.
+                    fallbackModelIds = GeminiModels.ensure(key),
                     enableThinkingMode = enableThinkingMode,
                     enableGoogleSearch = enableGoogleSearch
                 )
