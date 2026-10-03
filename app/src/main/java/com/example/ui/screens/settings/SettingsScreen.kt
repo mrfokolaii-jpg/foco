@@ -98,7 +98,7 @@ data class SettingsUiState(
     val openRouter: String = "",
     val groq: String = "",
     val gemini: String = "",
-    val userEmail: String = "mrfokolaii@gmail.com",
+    val userEmail: String = "",
     val accessibilityEnabled: Boolean = false,
     val snapshot: ApiKeySnapshot = ApiKeySnapshot(),
     // 9Router — the self-hosted router that rotates free models for us

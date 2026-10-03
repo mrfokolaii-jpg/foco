@@ -1,7 +1,6 @@
 package com.example.data.remote
 
 import android.util.Log
-import com.example.BuildConfig
 import com.example.data.model.AiModelOption
 import com.example.data.model.ChatMessage
 import com.example.data.model.GeminiModelConstants
@@ -64,19 +63,10 @@ object GeminiApiService {
     @Volatile
     var runtimeApiKeyOverride: String = ""
 
-    private fun getApiKey(): String {
-        if (runtimeApiKeyOverride.isNotBlank()) return runtimeApiKeyOverride
-        return try {
-            val key = BuildConfig.GEMINI_API_KEY
-            if (key.isBlank() || key == "MY_GEMINI_API_KEY") {
-                ""
-            } else {
-                key
-            }
-        } catch (e: Throwable) {
-            ""
-        }
-    }
+    /**
+     * کلید فقط از ورودی دستی کاربر می‌آید؛ کلید پیش‌فرضی داخل اپ وجود ندارد.
+     */
+    private fun getApiKey(): String = runtimeApiKeyOverride.trim()
 
     fun isApiKeyConfigured(): Boolean {
         return getApiKey().isNotBlank()

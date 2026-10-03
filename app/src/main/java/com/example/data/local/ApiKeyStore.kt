@@ -2,7 +2,6 @@ package com.example.data.local
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.example.BuildConfig
 import com.example.data.model.AiProviderKind
 import com.example.data.model.CustomProvider
 import org.json.JSONArray
@@ -19,22 +18,18 @@ class ApiKeyStore(context: Context) {
     fun getOpenRouterKey(): String = prefs.getString(KEY_OPENROUTER, "")?.trim().orEmpty()
     fun getGeminiOverride(): String = prefs.getString(KEY_GEMINI, "")?.trim().orEmpty()
 
-    fun getUserEmail(): String = prefs.getString(KEY_USER_EMAIL, "mrfokolaii@gmail.com")?.trim().orEmpty()
+    // هیچ مقدار پیش‌فرضی داخل اپ نیست؛ کاربر خودش وارد می‌کند.
+    fun getUserEmail(): String = prefs.getString(KEY_USER_EMAIL, "")?.trim().orEmpty()
     fun setUserEmail(value: String) = prefs.edit().putString(KEY_USER_EMAIL, value.trim()).apply()
 
     fun isAccessibilityEnabled(): Boolean = prefs.getBoolean(KEY_ACCESSIBILITY_ENABLED, false)
     fun setAccessibilityEnabled(value: Boolean) = prefs.edit().putBoolean(KEY_ACCESSIBILITY_ENABLED, value).apply()
 
-    fun getGeminiKey(): String {
-        val override = getGeminiOverride()
-        if (override.isNotBlank()) return override
-        return try {
-            val builtIn = BuildConfig.GEMINI_API_KEY
-            if (builtIn.isBlank() || builtIn == "MY_GEMINI_API_KEY") "" else builtIn
-        } catch (_: Throwable) {
-            ""
-        }
-    }
+    /**
+     * کلید جمینای فقط از ورودی دستی خود کاربر می‌آید.
+     * هیچ کلید پیش‌فرض یا هاردکدشده‌ای داخل اپ وجود ندارد.
+     */
+    fun getGeminiKey(): String = getGeminiOverride()
 
     fun setGroqKey(value: String) = prefs.edit().putString(KEY_GROQ, value.trim()).apply()
     fun setXaiGrokKey(value: String) = prefs.edit().putString(KEY_XAI_GROK, value.trim()).apply()
