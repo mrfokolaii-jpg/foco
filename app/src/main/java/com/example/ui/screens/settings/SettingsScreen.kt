@@ -158,6 +158,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /** کلیدهای پلاگین (گیت‌هاب / هاگینگ‌فیس) را ذخیره می‌کند و فوراً در اختیار ربات می‌گذارد. */
+    fun savePluginKeys(
+        gitHubToken: String,
+        owner: String,
+        repo: String,
+        branch: String,
+        huggingFaceToken: String
+    ) {
+        viewModelScope.launch {
+            val connectors = ConnectorStore(getApplication<Application>())
+            connectors.setGitHub(gitHubToken, owner, repo, branch)
+            connectors.setHfToken(huggingFaceToken)
+            loadKeys()
+        }
+    }
+
     fun saveCustom(label: String, baseUrl: String, key: String, model: String) {
         viewModelScope.launch {
             keyStore.setCustom(label, baseUrl, key, model)
@@ -222,6 +238,15 @@ fun SettingsScreen(
     var customModel by remember(uiState.customModel) { mutableStateOf(uiState.customModel) }
     var accessibilityState by remember(uiState.accessibilityEnabled) { mutableStateOf(uiState.accessibilityEnabled) }
     var showAccessibilityHelpDialog by remember { mutableStateOf(false) }
+
+    // کلیدهای پلاگین‌ها (گیت‌هاب و هاگینگ‌فیس) — این‌جا وارد می‌شوند و در صفحه‌ی
+    // «ابزارها» فقط روشن/خاموش می‌گردند.
+    val connectorStore = remember { ConnectorStore(context.applicationContext) }
+    var githubToken by remember { mutableStateOf(connectorStore.githubToken()) }
+    var githubOwner by remember { mutableStateOf(connectorStore.githubOwner()) }
+    var githubRepo by remember { mutableStateOf(connectorStore.githubRepo()) }
+    var githubBranch by remember { mutableStateOf(connectorStore.githubBranch()) }
+    var hfToken by remember { mutableStateOf(connectorStore.hfToken()) }
 
     val scrollState = rememberScrollState()
 
@@ -493,8 +518,8 @@ fun SettingsScreen(
         }
 
         // ---------------------------------------------------------------
-        // 9Router — the GitHub project that rotates free models for us.
-        // Point FOKO at a running 9Router server (its OpenAI-compatible API).
+        // کلید پلاگین‌ها — کلید گیت‌هاب و هاگینگ‌فیس این‌جا وارد می‌شود.
+        // روشن/خاموش کردن پلاگین در صفحه‌ی «ابزارها» انجام می‌گیرد.
         // ---------------------------------------------------------------
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -503,64 +528,71 @@ fun SettingsScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Layers, contentDescription = null, tint = PersianTurquoise)
+                    Icon(Icons.Default.Hub, contentDescription = null, tint = PersianTurquoise)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "9Router — مسیریاب خودکار مدل‌های رایگان",
+                        text = "کلید پلاگین‌ها — گیت‌هاب و هاگینگ‌فیس",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
                 Text(
-                    text = "9Router (github.com/decolua/9router) یک سرور است که چند سرویس رایگان را پشت یک آدرس جمع می‌کند؛ هر مدل به سقف خورد، خودش مدل بعدی را فعال می‌کند. آن را روی کامپیوتر یا سرور خودت اجرا کن و آدرسش را اینجا بده.",
+                    text = "کلیدها را همین‌جا وارد کن و به ربات وصل کن. روشن و خاموش کردن پلاگین در صفحه‌ی «ابزارها» انجام می‌شود.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                ApiKeyField(
+                    title = "توکن گیت‌هاب (ghp_... یا github_pat_...)",
+                    hint = "دسترسی repo و workflow",
+                    value = githubToken,
+                    onValueChange = { githubToken = it }
+                )
                 OutlinedTextField(
-                    value = nineRouterBase,
-                    onValueChange = { nineRouterBase = it },
-                    label = { Text("آدرس سرور 9Router") },
-                    placeholder = { Text(ApiKeyStore.DEFAULT_9ROUTER_BASE_URL) },
+                    value = githubOwner,
+                    onValueChange = { githubOwner = it },
+                    label = { Text("مالک مخزن (owner)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = githubRepo,
+                    onValueChange = { githubRepo = it },
+                    label = { Text("نام مخزن (repo)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = githubBranch,
+                    onValueChange = { githubBranch = it },
+                    label = { Text("شاخه (branch)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
                 ApiKeyField(
-                    title = "کلید API 9Router (اگر روی سرورت گذاشته‌ای)",
-                    hint = "Dashboard → API Keys",
-                    value = nineRouterKey,
-                    onValueChange = { nineRouterKey = it }
+                    title = "توکن Hugging Face (hf_...)",
+                    hint = "huggingface.co → Settings → Access Tokens",
+                    value = hfToken,
+                    onValueChange = { hfToken = it }
                 )
-                OutlinedTextField(
-                    value = nineRouterModel,
-                    onValueChange = { nineRouterModel = it },
-                    label = { Text("مدل یا نام Combo (مثلاً free-combo)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("اتصال فعال باشد", style = MaterialTheme.typography.bodyMedium)
-                    Switch(
-                        checked = uiState.nineRouterEnabled,
-                        onCheckedChange = { viewModel.setNineRouterEnabled(it) },
-                        colors = SwitchDefaults.colors(checkedTrackColor = PersianTurquoise)
-                    )
-                }
                 Button(
                     onClick = {
-                        viewModel.saveNineRouter(nineRouterBase, nineRouterKey, nineRouterModel, true)
-                        Toast.makeText(context, "9Router ذخیره شد و به ربات وصل شد", Toast.LENGTH_SHORT).show()
+                        viewModel.savePluginKeys(
+                            gitHubToken = githubToken,
+                            owner = githubOwner,
+                            repo = githubRepo,
+                            branch = githubBranch,
+                            huggingFaceToken = hfToken
+                        )
+                        Toast.makeText(context, "کلیدها ذخیره و به ربات وصل شدند", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
                 ) {
-                    Text("ذخیره و اتصال به ربات", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("ذخیره کلیدها و اتصال به ربات", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
         }

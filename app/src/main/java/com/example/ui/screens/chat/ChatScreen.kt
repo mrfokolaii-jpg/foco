@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -145,6 +146,7 @@ fun ChatScreen(
     openTwoWayVoice: Boolean = false,
     onTwoWayVoiceConsumed: () -> Unit = {},
     onNavigateToScreen: (String) -> Unit = {},
+    onOpenMenu: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -349,6 +351,9 @@ fun ChatScreen(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        // سوایپ از لبه‌ی چپ حالا کشوی اصلی اپ (بخش‌ها) را باز می‌کند، پس این کشو
+        // (فهرست گفتگوها) فقط با دکمه‌ی تاریخچه در نوار بالا باز می‌شود.
+        gesturesEnabled = false,
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -409,8 +414,9 @@ fun ChatScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                        Icon(Icons.Default.Menu, contentDescription = "منو")
+                    // کشوی بخش‌های اپ؛ با سوایپ از لبه‌ی چپ هم باز می‌شود.
+                    IconButton(onClick = onOpenMenu) {
+                        Icon(Icons.Default.Menu, contentDescription = "بخش‌های اپ")
                     }
                 },
                 actions = {
@@ -426,6 +432,10 @@ fun ChatScreen(
                             contentDescription = "مکالمه صوتی دوطرفه",
                             tint = PersianTurquoise
                         )
+                    }
+                    // فهرست گفتگوهای قبلی (کشوی داخلی)
+                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        Icon(Icons.Default.History, contentDescription = "گفتگوهای قبلی")
                     }
                     IconButton(onClick = { viewModel.startNewConversation() }) {
                         Icon(Icons.Default.Add, contentDescription = "گفتگوی جدید")
@@ -678,6 +688,19 @@ fun ChatScreen(
                     connectorSnapshot = connectorStore.snapshot()
                     showPluginsSheet = true
                 },
+                onCopyLastReply = {
+                    val last = uiState.messages.lastOrNull { it.text.isNotBlank() }
+                    if (last != null) {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Foko Text", last.text))
+                        Toast.makeText(context, "متن کپی شد", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onClearConversation = {
+                    viewModel.startNewConversation()
+                    Toast.makeText(context, "گفتگوی جدید باز شد", Toast.LENGTH_SHORT).show()
+                },
+                hasCopyTarget = uiState.messages.any { it.text.isNotBlank() },
                 modifier = Modifier
                     .fillMaxWidth()
                     .imePadding()
@@ -1047,6 +1070,9 @@ fun ModernChatInputBar(
     onVoiceClick: () -> Unit,
     onSelectModelClick: () -> Unit,
     onPluginsClick: () -> Unit,
+    onCopyLastReply: () -> Unit = {},
+    onClearConversation: () -> Unit = {},
+    hasCopyTarget: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Docked composer: sits flush on top of the bottom navigation bar (no gap).
@@ -1139,6 +1165,34 @@ fun ModernChatInputBar(
                     cursorColor = PersianTurquoise
                 )
             )
+
+            // Copy the last reply
+            IconButton(
+                onClick = onCopyLastReply,
+                enabled = hasCopyTarget,
+                modifier = Modifier.size(34.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "کپی آخرین پاسخ",
+                    tint = if (hasCopyTarget) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            // Clear the whole conversation
+            IconButton(
+                onClick = onClearConversation,
+                modifier = Modifier.size(34.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "پاک کردن گفتگو",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
 
             // Auto / Model Pill Button
             Surface(

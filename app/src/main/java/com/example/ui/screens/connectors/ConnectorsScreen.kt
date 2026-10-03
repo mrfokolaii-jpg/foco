@@ -86,7 +86,7 @@ fun ConnectorsScreen(
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = "فوکو را به گیت‌هاب وصل کن، وضعیت Hugging Face را ببین و ویجت شناور را روشن کن.",
+            text = "پلاگین‌ها را همین‌جا روشن و خاموش کن. محل وارد کردن کلیدها: «تنظیمات و کلیدها».",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -176,50 +176,31 @@ fun ConnectorsScreen(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(Icons.Default.Hub, "GitHub — ذخیره، ارتقای دانش و کامپایل")
+                SectionHeader(Icons.Default.Hub, "گیت‌هاب — پلاگین ذخیره، دانش و کامپایل")
                 Text(
-                    text = "این توکن مستقیم به خودِ ربات وصل می‌شود، نه فقط به این صفحه. فوکو با آن فایل می‌خواند و می‌نویسد، پوشه دانش می‌سازد، پروژه را بارگذاری می‌کند و اپلیکیشن را کامپایل می‌کند. توکن باید دسترسی repo و workflow داشته باشد.",
+                    text = "توکن، نام مخزن و شاخه را در «تنظیمات و کلیدها» وارد کن. این‌جا فقط پلاگین را روشن یا خاموش می‌کنی.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                SecretField("توکن گیت‌هاب (ghp_...)", state.githubToken) { viewModel.update { s -> s.copy(githubToken = it) } }
-                OutlinedTextField(
-                    value = state.githubOwner,
-                    onValueChange = { viewModel.update { s -> s.copy(githubOwner = it) } },
-                    label = { Text("مالک مخزن (owner)") },
-                    singleLine = true,
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-                OutlinedTextField(
-                    value = state.githubRepo,
-                    onValueChange = { viewModel.update { s -> s.copy(githubRepo = it) } },
-                    label = { Text("نام مخزن (repo)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-                OutlinedTextField(
-                    value = state.githubBranch,
-                    onValueChange = { viewModel.update { s -> s.copy(githubBranch = it) } },
-                    label = { Text("شاخه (branch)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { viewModel.saveGitHub(); viewModel.testGitHub() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text("ذخیره و اتصال به ربات", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (state.githubToken.isNotBlank()) "کلید تنظیم شده ✓" else "کلید در تنظیمات وارد نشده",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (state.githubToken.isNotBlank()) PersianTurquoise
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Switch(
+                        checked = state.githubToken.isNotBlank(),
+                        onCheckedChange = { viewModel.setGitHubEnabled(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = PersianTurquoise)
+                    )
                 }
                 StatusLine(state.githubStatus)
-                Text(
-                    text = "وقتی اینجا «متصل ✓» شد، ربات هم همان لحظه به گیت‌هاب دسترسی دارد؛ لازم نیست جای دیگری توکن بدهی.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
 
@@ -230,9 +211,9 @@ fun ConnectorsScreen(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(Icons.Default.Cloud, "Hugging Face — مدل‌ها و ابزارها")
+                SectionHeader(Icons.Default.Cloud, "هاگینگ‌فیس — پلاگین مدل‌ها و ابزارها")
                 Text(
-                    text = "اتصال از صفحه گفتگو انجام می‌شود: دکمه (+) کنار Auto را بزن و کلید Hugging Face را روشن کن. همان توکن به خودِ ربات وصل می‌شود و فوکو با آن مدل جستجو می‌کند و مدل را اجرا می‌کند.",
+                    text = "توکن Hugging Face را در «تنظیمات و کلیدها» وارد کن. این‌جا فقط پلاگین را روشن یا خاموش می‌کنی.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -242,17 +223,17 @@ fun ConnectorsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (state.hfToken.isNotBlank()) "متصل به ربات ✓" else "وصل نشده",
+                        text = if (state.hfToken.isNotBlank()) "کلید تنظیم شده ✓" else "کلید در تنظیمات وارد نشده",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (state.hfToken.isNotBlank()) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (state.hfToken.isNotBlank()) PersianTurquoise
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Button(
-                        onClick = { viewModel.testHuggingFace() },
-                        enabled = state.hfToken.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text("بررسی اتصال", color = Color.Black, fontWeight = FontWeight.Bold) }
+                    Switch(
+                        checked = state.hfToken.isNotBlank(),
+                        onCheckedChange = { viewModel.setHuggingFaceEnabled(it) },
+                        colors = SwitchDefaults.colors(checkedTrackColor = PersianTurquoise)
+                    )
                 }
                 StatusLine(state.hfStatus)
             }

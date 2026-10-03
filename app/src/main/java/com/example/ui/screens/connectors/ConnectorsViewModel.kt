@@ -74,6 +74,43 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
         _uiState.value = _uiState.value.copy(lastMessage = "توکن Hugging Face ذخیره شد.")
     }
 
+    /**
+     * کلید گیت‌هاب در صفحه‌ی تنظیمات وارد می‌شود؛ اینجا فقط پلاگین روشن/خاموش می‌شود.
+     * روشن‌کردن یعنی همان کلیدِ ذخیره‌شده فوراً به ربات وصل شود.
+     */
+    fun setGitHubEnabled(enabled: Boolean) {
+        if (enabled) {
+            load()
+            val s = _uiState.value
+            if (s.githubToken.isNotBlank()) {
+                testGitHub()
+            } else {
+                _uiState.value = s.copy(githubStatus = "اول کلید گیت‌هاب را در تنظیمات وارد کن.")
+            }
+        } else {
+            store.setGitHub("", store.githubOwner(), store.githubRepo(), store.githubBranch())
+            load()
+            _uiState.value = _uiState.value.copy(githubStatus = "پلاگین گیت‌هاب خاموش شد.")
+        }
+    }
+
+    /** همان قاعده برای Hugging Face: کلید در تنظیمات، روشن/خاموش اینجا. */
+    fun setHuggingFaceEnabled(enabled: Boolean) {
+        if (enabled) {
+            load()
+            val s = _uiState.value
+            if (s.hfToken.isNotBlank()) {
+                testHuggingFace()
+            } else {
+                _uiState.value = s.copy(hfStatus = "اول کلید Hugging Face را در تنظیمات وارد کن.")
+            }
+        } else {
+            store.setHfToken("")
+            load()
+            _uiState.value = _uiState.value.copy(hfStatus = "پلاگین Hugging Face خاموش شد.")
+        }
+    }
+
     fun saveDrive() {
         val s = _uiState.value
         store.setDrive(s.driveClientId, s.driveClientSecret, s.driveRefreshToken, s.driveAccessToken)

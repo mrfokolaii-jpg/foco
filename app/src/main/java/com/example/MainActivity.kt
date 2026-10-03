@@ -8,32 +8,51 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -46,16 +65,17 @@ import com.example.ui.screens.chat.ChatViewModel
 import com.example.ui.screens.connectors.ConnectorsScreen
 import com.example.ui.screens.settings.SettingsScreen
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.PersianTurquoise
+import kotlinx.coroutines.launch
 
 sealed class Screen(
     val route: String,
     val persianTitle: String,
-    val icon: ImageVector,
-    val inBottomBar: Boolean = true
+    val icon: ImageVector
 ) {
     object Chat : Screen("chat", "گفتگو با فوکو", Icons.AutoMirrored.Filled.Chat)
-    object Connectors : Screen("connectors", "ابزارها", Icons.Default.Extension)
-    object Settings : Screen("settings", "تنظیمات و دسترسی‌ها", Icons.Default.Settings)
+    object Connectors : Screen("connectors", "ابزارها و پلاگین‌ها", Icons.Default.Extension)
+    object Settings : Screen("settings", "تنظیمات و کلیدها", Icons.Default.Settings)
 }
 
 class MainActivity : ComponentActivity() {
@@ -159,6 +179,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Shell of the app.
+ *
+ * The three-tab bottom bar is gone. In its place a panel that slides in from the left edge
+ * (swipe right on the screen, or tap the ☰ button) holds every section of the app, so the
+ * chat itself gets the full height of the screen.
+ */
 @Composable
 fun PersianAiApp(
     openTwoWayVoice: Boolean = false,
@@ -169,101 +196,187 @@ fun PersianAiApp(
     val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Chat.route
 
     val chatViewModel: ChatViewModel = viewModel()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
-    val screens = listOf(
-        Screen.Chat,
-        Screen.Connectors,
-        Screen.Settings
-    )
-
-    // While the keyboard is open the bottom bar steps aside, so the message composer can sit
-    // flush on top of the keyboard instead of leaving dead space in between.
-    val density = LocalDensity.current
-    val keyboardOpen = WindowInsets.ime.getBottom(density) > 0
-
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background,
-        bottomBar = {
-            if (keyboardOpen) {
-                // Keep the scaffold's bottom slot empty while typing.
-            } else {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.primary,
-                tonalElevation = 6.dp
-            ) {
-                screens.forEach { screen ->
-                    val isSelected = currentRoute == screen.route
-                    NavigationBarItem(
-                        icon = {
-                            Icon(
-                                imageVector = screen.icon,
-                                contentDescription = screen.persianTitle
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = screen.persianTitle,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                maxLines = 1,
-                                textAlign = TextAlign.Center
-                            )
-                        },
-                        selected = isSelected,
-                        onClick = {
-                            if (currentRoute != screen.route) {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        ),
-                        modifier = Modifier.testTag("nav_${screen.route}")
-                    )
+    fun openSection(route: String) {
+        if (currentRoute != route) {
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) {
+                    saveState = true
                 }
-            }
+                launchSingleTop = true
+                restoreState = true
             }
         }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Chat.route,
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            composable(Screen.Chat.route) {
-                chatViewModel.refreshKeys()
-                ChatScreen(
-                    viewModel = chatViewModel,
-                    openTwoWayVoice = openTwoWayVoice,
-                    onTwoWayVoiceConsumed = onTwoWayVoiceConsumed,
-                    onNavigateToScreen = { route ->
-                        navController.navigate(route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
-                            }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        // Swiping from the left edge opens the panel on every screen.
+        gesturesEnabled = true,
+        drawerContent = {
+            ModalDrawerSheet(
+                drawerContainerColor = MaterialTheme.colorScheme.surface,
+                drawerTonalElevation = 6.dp
+            ) {
+                FokoSectionDrawer(
+                    currentRoute = currentRoute,
+                    onSelect = { route ->
+                        scope.launch { drawerState.close() }
+                        openSection(route)
                     }
                 )
             }
-            composable(Screen.Connectors.route) {
-                ConnectorsScreen()
+        }
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.background
+        ) { innerPadding ->
+            NavHost(
+                navController = navController,
+                startDestination = Screen.Chat.route,
+                modifier = Modifier.padding(innerPadding)
+            ) {
+                composable(Screen.Chat.route) {
+                    chatViewModel.refreshKeys()
+                    ChatScreen(
+                        viewModel = chatViewModel,
+                        openTwoWayVoice = openTwoWayVoice,
+                        onTwoWayVoiceConsumed = onTwoWayVoiceConsumed,
+                        onNavigateToScreen = { route -> openSection(route) },
+                        onOpenMenu = { scope.launch { drawerState.open() } }
+                    )
+                }
+                composable(Screen.Connectors.route) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        FokoSectionTopBar(
+                            title = Screen.Connectors.persianTitle,
+                            onOpenMenu = { scope.launch { drawerState.open() } }
+                        )
+                        ConnectorsScreen()
+                    }
+                }
+                composable(Screen.Settings.route) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        FokoSectionTopBar(
+                            title = Screen.Settings.persianTitle,
+                            onOpenMenu = { scope.launch { drawerState.open() } }
+                        )
+                        SettingsScreen()
+                    }
+                }
             }
-            composable(Screen.Settings.route) {
-                SettingsScreen()
+        }
+    }
+}
+
+/** نوار بالای بخش‌هایی که خودشان نوار ندارند؛ فقط دکمه‌ی منو. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FokoSectionTopBar(title: String, onOpenMenu: () -> Unit) {
+    TopAppBar(
+        title = {
+            Text(
+                text = title,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleMedium
+            )
+        },
+        navigationIcon = {
+            IconButton(onClick = onOpenMenu) {
+                Icon(Icons.Default.Menu, contentDescription = "منو")
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface
+        )
+    )
+}
+
+/**
+ * فهرست بخش‌ها داخل کشو. همه‌ی آیکون‌ها و صفحه‌ها همین‌جا جمع شده‌اند.
+ */
+@Composable
+private fun FokoSectionDrawer(currentRoute: String, onSelect: (String) -> Unit) {
+    val items = listOf(
+        Triple(Screen.Chat.route, Screen.Chat.persianTitle, Screen.Chat.icon),
+        Triple(Screen.Connectors.route, Screen.Connectors.persianTitle, Screen.Connectors.icon),
+        Triple(Screen.Settings.route, Screen.Settings.persianTitle, Screen.Settings.icon)
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(PersianTurquoise),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.Black)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "FOKO AI (فوکو)",
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "دستیار هوشمند و خودکار",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = "بخش‌ها:",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+
+        items.forEach { (route, title, icon) ->
+            val active = currentRoute == route
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onSelect(route) },
+                color = if (active) PersianTurquoise.copy(alpha = 0.16f) else Color.Transparent
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = PersianTurquoise,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
             }
         }
     }
