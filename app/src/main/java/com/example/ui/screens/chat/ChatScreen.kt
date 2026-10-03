@@ -46,7 +46,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -138,6 +140,8 @@ import com.example.ui.screens.connectors.ConnectorAuthTarget
 import com.example.ui.theme.PersianTurquoise
 import com.example.ui.theme.PersianViolet
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -161,6 +165,8 @@ fun ChatScreen(
     var connectorAuthTarget by remember { mutableStateOf<ConnectorAuthTarget?>(null) }
     var showTwoWayVoiceModal by remember { mutableStateOf(false) }
     var isListeningInBar by remember { mutableStateOf(false) }
+    // پیامی که کاربر می‌خواهد به آن پاسخ (ریپلای) بدهد.
+    var replyTarget by remember { mutableStateOf<ChatMessage?>(null) }
 
     val connectorStore = remember { ConnectorStore(context.applicationContext) }
     var connectorSnapshot by remember { mutableStateOf(connectorStore.snapshot()) }
@@ -489,7 +495,8 @@ fun ChatScreen(
                                         null,
                                         message.id
                                     )
-                                }
+                                },
+                                onReply = { replyTarget = message }
                             )
                         }
                     }
@@ -670,6 +677,61 @@ fun ChatScreen(
                 }
             }
 
+            // نوار «در پاسخ به ...» بالای کادر نوشتن
+            val replying = replyTarget
+            if (replying != null) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(34.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(PersianTurquoise)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (replying.sender == MessageSender.USER) {
+                                    "پاسخ به پیام شما"
+                                } else {
+                                    "پاسخ به فوکو"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = PersianTurquoise
+                            )
+                            Text(
+                                text = replying.text.replace("\n", " ").trim().take(120),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(
+                            onClick = { replyTarget = null },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "لغو پاسخ",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Bottom Input Bar Container (flush with the bottom navigation bar)
             ModernChatInputBar(
                 inputText = inputText,
@@ -683,8 +745,17 @@ fun ChatScreen(
                 hasFiles = uiState.attachedFiles.isNotEmpty(),
                 onSendMessage = {
                     val prompt = inputText
+                    val quoted = replyTarget
                     inputText = ""
-                    viewModel.sendMessage(prompt)
+                    replyTarget = null
+                    // اگر ریپلای فعال باشد، پیام نقل‌شده به‌صورت نقل‌قول بالای متن می‌رود.
+                    val outgoing = if (quoted != null) {
+                        val q = quoted.text.replace("\n", " ").trim().take(400)
+                        "> $q\n\n$prompt"
+                    } else {
+                        prompt
+                    }
+                    viewModel.sendMessage(outgoing)
                 },
                 onAttachClick = { photoPickerLauncher.launch("image/*") },
                 onAttachFileClick = { filePickerLauncher.launch(arrayOf("*/*")) },
@@ -1722,10 +1793,21 @@ fun DrawerItem(
 fun ChatMessageBubble(
     message: ChatMessage,
     onCopy: () -> Unit,
-    onSpeak: () -> Unit
+    onSpeak: () -> Unit,
+    onReply: () -> Unit = {}
 ) {
     val isUser = message.sender == MessageSender.USER
     val isError = message.isError
+
+    // ساعت پیام — گوشهٔ پایین حباب.
+    val timeLabel = remember(message.timestamp) {
+        SimpleDateFormat("HH:mm", Locale.US).format(Date(message.timestamp))
+    }
+    val footerTint = when {
+        isUser -> MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f)
+        isError -> MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.75f)
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1804,33 +1886,59 @@ fun ChatMessageBubble(
                     }
                 }
 
-                // Message Text
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = when {
-                        isError -> MaterialTheme.colorScheme.onErrorContainer
-                        isUser -> MaterialTheme.colorScheme.onPrimary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    lineHeight = 22.sp
-                )
+                // Message Text — قابل انتخاب و کپی با نگه‌داشتن انگشت
+                SelectionContainer {
+                    Text(
+                        text = message.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = when {
+                            isError -> MaterialTheme.colorScheme.onErrorContainer
+                            isUser -> MaterialTheme.colorScheme.onPrimary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        lineHeight = 22.sp
+                    )
+                }
 
-                // Actions (Copy / Speak)
-                if (!isUser && !isError) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "کپی", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = onSpeak, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.VolumeUp, contentDescription = "پخش صدا", modifier = Modifier.size(15.dp), tint = PersianTurquoise)
+                // Footer: ساعت پیام در گوشهٔ پایین + کپی / پخش صدا / ریپلای
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onCopy, modifier = Modifier.size(26.dp)) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = "کپی متن",
+                            modifier = Modifier.size(14.dp),
+                            tint = footerTint
+                        )
+                    }
+                    if (!isUser && !isError) {
+                        IconButton(onClick = onSpeak, modifier = Modifier.size(26.dp)) {
+                            Icon(
+                                Icons.Default.VolumeUp,
+                                contentDescription = "پخش صدا",
+                                modifier = Modifier.size(15.dp),
+                                tint = PersianTurquoise
+                            )
                         }
                     }
+                    IconButton(onClick = onReply, modifier = Modifier.size(26.dp)) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Reply,
+                            contentDescription = "پاسخ به این پیام",
+                            modifier = Modifier.size(15.dp),
+                            tint = footerTint
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text(
+                        text = timeLabel,
+                        fontSize = 10.sp,
+                        color = footerTint
+                    )
                 }
             }
         }
