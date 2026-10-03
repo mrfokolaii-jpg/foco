@@ -62,7 +62,6 @@ fun VoiceSettingsCard(context: Context) {
     var engine by remember { mutableStateOf<TextToSpeech?>(null) }
     var ready by remember { mutableStateOf(false) }
     var voices by remember { mutableStateOf<List<Voice>>(emptyList()) }
-    var showAll by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(store.getTtsVoice()) }
     var labels by remember { mutableStateOf(store.getVoiceLabels()) }
     var renameTarget by remember { mutableStateOf<String?>(null) }
@@ -172,8 +171,9 @@ fun VoiceSettingsCard(context: Context) {
                 }
             }
 
-            val visible = if (showAll) voices else voices.take(6)
-            visible.forEach { voice ->
+            // فقط صداهای فارسی نمایش داده می‌شوند. فهرست چند‌صد‌تایی صداهای گوشی
+            // (عربی، بنگالی، بلغاری، …) که داده‌شان نصب نیست و کار نمی‌کند کنار گذاشته شد.
+            persianVoices.forEach { voice ->
                 val isSelected = selected == voice.name
                 val isPersian = FokoVoiceCtl.isPersian(voice)
                 Row(
@@ -215,10 +215,14 @@ fun VoiceSettingsCard(context: Context) {
                 }
             }
 
-            if (voices.size > 6) {
-                TextButton(onClick = { showAll = !showAll }) {
-                    Text(if (showAll) "نمایش کمتر" else "نمایش همه صداها (${voices.size})", color = PersianTurquoise)
-                }
+            if (ready && persianVoices.isEmpty()) {
+                Text(
+                    text = "فهرست صدای گوشی اینجا پنهان شد چون هیچ‌کدام فارسی نبودند و کار هم نمی‌کردند " +
+                        "(مجموعاً ${voices.size} صدا روی گوشی ثبت است). با دکمهٔ بالا بستهٔ زبان فارسی " +
+                        "را نصب کن؛ همین که نصب شد، صدای فارسی خودش انتخاب و همین‌جا نشان داده می‌شود.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             renameTarget?.let { target ->

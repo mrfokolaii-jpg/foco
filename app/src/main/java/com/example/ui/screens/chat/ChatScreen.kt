@@ -25,6 +25,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Menu
@@ -77,6 +79,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -796,7 +800,8 @@ fun ChatScreen(
             geminiModels = if (snapshot.geminiConfigured) {
                 val geminiKey = com.example.data.local.ApiKeyStore(context.applicationContext).getGeminiKey()
                 com.example.data.remote.GeminiModels.list(geminiKey)
-                    .take(12)
+                    // سقف بالا تا مدل‌های gemini با take() حذف نشوند.
+                    .take(40)
                     .map { AiModelCatalog.gemini(it) }
             } else {
                 emptyList()
@@ -1152,189 +1157,230 @@ fun ModernChatInputBar(
     hasCopyTarget: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // Docked composer: sits flush on top of the bottom navigation bar (no gap).
+    // کادر نوشتن به سبک کارت: متن تمامعرض بالا، ردیف کنترل‌های گرد زیر آن.
+    var showAttachMenu by remember { mutableStateOf(false) }
+    val canSend = !isLoading && (inputText.isNotBlank() || hasImages || hasFiles)
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
     ) {
-        // Hairline seam that separates the thread from the composer
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
-        )
-
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 3.dp
-        ) {
-        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(22.dp)
+                ),
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 2.dp
         ) {
-            // Attach file button (zip, documents, any file)
-            IconButton(
-                onClick = onAttachFileClick,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AttachFile,
-                    contentDescription = "پیوست فایل",
-                    tint = if (hasFiles) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Attach image button
-            IconButton(
-                onClick = onAttachClick,
-                modifier = Modifier.size(38.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PhotoLibrary,
-                    contentDescription = "پیوست تصاویر",
-                    tint = if (hasImages) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // In-app voice button
-            IconButton(
-                onClick = onVoiceClick,
-                modifier = Modifier
-                    .size(38.dp)
-                    .background(if (isListening) Color(0xFFEF4444).copy(alpha = 0.2f) else Color.Transparent, CircleShape)
-            ) {
-                Icon(
-                    imageVector = if (isListening) Icons.Default.GraphicEq else Icons.Default.Mic,
-                    contentDescription = "ورودی صوتی",
-                    tint = if (isListening) Color(0xFFEF4444) else PersianTurquoise,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            // Text Input Field
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = onTextChanged,
-                placeholder = {
-                    Text(
-                        text = if (isListening) "در حال شنیدن صدای شما..." else "پیام خود را بنویسید...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (isListening) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                // متن پیام: تمام عرض تا حروف فارسی درست و افقی تایپ شوند.
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = onTextChanged,
+                    placeholder = {
+                        Text(
+                            text = if (isListening) "در حال شنیدن صدای شما..." else "پیام خود را بنویسید...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isListening) PersianTurquoise
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 54.dp, max = 168.dp)
+                        .testTag("chat_input_field"),
+                    maxLines = 9,
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        disabledBorderColor = Color.Transparent,
+                        cursorColor = PersianTurquoise
                     )
-                },
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 48.dp, max = 168.dp)
-                    .testTag("chat_input_field"),
-                // Room for a real paragraph instead of four cramped lines.
-                maxLines = 9,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    cursorColor = PersianTurquoise
                 )
-            )
 
-            // Copy the last reply
-            IconButton(
-                onClick = onCopyLastReply,
-                enabled = hasCopyTarget,
-                modifier = Modifier.size(34.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ContentCopy,
-                    contentDescription = "کپی آخرین پاسخ",
-                    tint = if (hasCopyTarget) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+                Spacer(modifier = Modifier.height(6.dp))
 
-            // Clear the whole conversation
-            IconButton(
-                onClick = onClearConversation,
-                modifier = Modifier.size(34.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "پاک کردن گفتگو",
-                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            // Auto / Model Pill Button
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .clickable { onSelectModelClick() }
-                    .padding(horizontal = 2.dp)
-            ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = activeModelLabel,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    // + : تصویر، فایل، پلاگین‌ها
+                    Box {
+                        RoundIconButton(
+                            icon = Icons.Default.Add,
+                            description = "افزودن پیوست یا پلاگین",
+                            onClick = { showAttachMenu = true }
+                        )
+                        DropdownMenu(
+                            expanded = showAttachMenu,
+                            onDismissRequest = { showAttachMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("پیوست تصویر") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                                },
+                                onClick = {
+                                    showAttachMenu = false
+                                    onAttachClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("پیوست فایل") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.AttachFile, contentDescription = null)
+                                },
+                                onClick = {
+                                    showAttachMenu = false
+                                    onAttachFileClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("پلاگین‌ها و اتصالات") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Extension, contentDescription = null)
+                                },
+                                onClick = {
+                                    showAttachMenu = false
+                                    onPluginsClick()
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // ورودی صوتی
+                    RoundIconButton(
+                        icon = if (isListening) Icons.Default.GraphicEq else Icons.Default.Mic,
+                        description = "ورودی صوتی",
+                        tint = if (isListening) Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        background = if (isListening) Color(0xFFEF4444).copy(alpha = 0.15f) else Color.Transparent,
+                        onClick = onVoiceClick
                     )
-                    Icon(
-                        imageVector = Icons.Default.ExpandMore,
-                        contentDescription = "انتخاب مدل",
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // کپی آخرین پاسخ
+                    RoundIconButton(
+                        icon = Icons.Default.ContentCopy,
+                        description = "کپی آخرین پاسخ",
+                        enabled = hasCopyTarget,
+                        onClick = onCopyLastReply
                     )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // پاک کردن گفتگو
+                    IconButton(
+                        onClick = onClearConversation,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "پاک کردن گفتگو",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // پیل انتخاب مدل
+                    Surface(
+                        color = Color.Transparent,
+                        shape = RoundedCornerShape(18.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier.clickable { onSelectModelClick() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = activeModelLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Icon(
+                                imageVector = Icons.Default.ExpandMore,
+                                contentDescription = "انتخاب مدل",
+                                modifier = Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // ارسال
+                    IconButton(
+                        onClick = onSendMessage,
+                        enabled = canSend,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(
+                                if (canSend) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceVariant,
+                                CircleShape
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowUpward,
+                            contentDescription = "ارسال پیام",
+                            tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
-
-            // Plugins (+) button next to the model pill
-            IconButton(
-                onClick = onPluginsClick,
-                modifier = Modifier
-                    .size(34.dp)
-                    .background(PersianTurquoise.copy(alpha = 0.15f), CircleShape)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "پلاگین‌ها و اتصالات",
-                    tint = PersianTurquoise,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.width(2.dp))
-
-            // Send Button
-            IconButton(
-                onClick = onSendMessage,
-                enabled = !isLoading && (inputText.isNotBlank() || hasImages || hasFiles),
-                modifier = Modifier
-                    .size(38.dp)
-                    .background(
-                        if (!isLoading && (inputText.isNotBlank() || hasImages || hasFiles)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        CircleShape
-                    )
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowUpward,
-                    contentDescription = "ارسال پیام",
-                    tint = if (!isLoading && (inputText.isNotBlank() || hasImages || hasFiles)) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                    modifier = Modifier.size(18.dp)
-                )
-            }
         }
-        }
+    }
+}
+
+/** دکمهٔ گرد با حاشیهٔ نازک، هم‌سبک با کادر نوشتن. */
+@Composable
+private fun RoundIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    tint: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    background: Color = Color.Transparent
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(36.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f),
+                shape = CircleShape
+            )
+            .background(background, CircleShape)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = if (enabled) tint else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 
@@ -1362,11 +1408,15 @@ fun ModelOptionCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // نام مدل کوتاه می‌شود تا برچسب «Gemini» عمودی له نشود.
                     Text(
                         text = title,
+                        modifier = Modifier.weight(1f, fill = false),
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (isSelected) PersianTurquoise else MaterialTheme.colorScheme.onSurface
+                        color = if (isSelected) PersianTurquoise else MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(
@@ -1377,6 +1427,8 @@ fun ModelOptionCard(
                             text = tag,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }

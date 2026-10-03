@@ -63,7 +63,45 @@ object FokoVoiceCtl {
         false
     }
 
-    /** همه‌ی صداهای گوشی، فارسی‌ها اول و بعد بر اساس زبان و نام. */
+    /**
+     * نشانه‌های احتمالی صدای مرد در نام صدا.
+     * اندروید فیلدی برای جنسیت صدا ندارد، پس فقط از روی نام می‌شود حدس زد.
+     */
+    private val MALE_HINTS = listOf("male", "man", "m1", "m2", "m3")
+
+    private fun looksMale(voice: Voice): Boolean = try {
+        val n = voice.name.lowercase(Locale.ROOT)
+        MALE_HINTS.any { n.contains(it) }
+    } catch (_: Exception) {
+        false
+    }
+
+    /** بعضی صداها فقط در فهرست موتور هستند ولی داده‌شان نصب نشده و کار نمی‌کنند. */
+    private fun isInstalled(voice: Voice): Boolean = try {
+        voice.features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) != true
+    } catch (_: Exception) {
+        true
+    }
+
+    private fun needsNetwork(voice: Voice): Boolean = try {
+        voice.isNetworkConnectionRequired
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun qualityOf(voice: Voice): Int = try {
+        voice.quality
+    } catch (_: Exception) {
+        0
+    }
+
+    /**
+     * همه‌ی صداهای گوشی، به‌ترتیبی که «بهترین گزینهٔ قابل‌استفاده» اول بیفتد:
+     * فارسی → نصب‌شده → صدای مرد → آفلاین → کیفیت بالاتر → زبان و نام.
+     *
+     * پیش‌تر فقط فارسی/زبان/نام مرتب می‌شد و نتیجه این بود که در گوشی‌ای بدون صدای فارسی،
+     * فهرست با صدای عربی شروع می‌شد و بقیه هم داده‌شان نصب نبود.
+     */
     fun voicesOf(engine: TextToSpeech?): List<Voice> {
         val all = try {
             engine?.voices?.toList().orEmpty()
@@ -71,8 +109,12 @@ object FokoVoiceCtl {
             emptyList()
         }
         return all.sortedWith(
-            compareBy(
+            compareBy<Voice>(
                 { if (isPersian(it)) 0 else 1 },
+                { if (isInstalled(it)) 0 else 1 },
+                { if (looksMale(it)) 0 else 1 },
+                { if (needsNetwork(it)) 1 else 0 },
+                { -qualityOf(it) },
                 { it.locale.language },
                 { it.name }
             )
@@ -80,6 +122,9 @@ object FokoVoiceCtl {
     }
 
     fun persianVoices(engine: TextToSpeech?): List<Voice> = voicesOf(engine).filter { isPersian(it) }
+
+    /** بهترین صدای فارسیِ قابل‌استفاده، یا null اگر گوشی هیچ صدای فارسی نداشته باشد. */
+    fun bestPersian(engine: TextToSpeech?): Voice? = persianVoices(engine).firstOrNull()
 
     // --------------------------------------------------------------- settings ----
 
@@ -108,13 +153,19 @@ object FokoVoiceCtl {
                 }
             }
 
-            // ۲. صدای انتخاب‌شده؛ اگر پیدا نشد، اولین صدای فارسی موجود.
+            // ۲. صدای انتخاب‌شده؛ اگر پیدا نشد یا فارسی نبود، بهترین صدای فارسی موجود.
             val available = voicesOf(e)
             val wanted = store.getTtsVoice()
             var chosen = if (wanted.isNotBlank()) available.firstOrNull { it.name == wanted } else null
-            if (chosen == null) chosen = available.firstOrNull { isPersian(it) }
+            if (chosen == null || !isPersian(chosen)) {
+                available.firstOrNull { isPersian(it) }?.let { chosen = it }
+            }
             if (chosen != null) {
                 runCatching { e.voice = chosen }
+                // اولین باری که صدای فارسی پیدا می‌شود، همان را ذخیره کن تا ثابت بماند.
+                if (wanted.isBlank() && isPersian(chosen)) {
+                    runCatching { store.setTtsVoice(chosen.name) }
+                }
             }
 
             // ۳. زیر‌و‌بمی و سرعت.
@@ -140,12 +191,18 @@ object FokoVoiceCtl {
 
     // ------------------------------------------------------------------ speak ----
 
-    /** خواندن متن با آماده‌سازی فارسی. */
+    /**
+     * خواندن متن با آماده‌سازی فارسی و بلندترین حجم ممکن.
+     * بعضی موتورها حجم پیش‌فرض را کم می‌گیرند؛ `KEY_PARAM_VOLUME = 1.0` آن را جبران می‌کند.
+     */
     fun speak(engine: TextToSpeech?, text: String, utteranceId: String = "foko_speech") {
         val e = engine ?: return
         val spoken = SpeechText.forSpeech(text)
         if (spoken.isBlank()) return
-        runCatching { e.speak(spoken, TextToSpeech.QUEUE_FLUSH, null, utteranceId) }
+        val params = android.os.Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+        }
+        runCatching { e.speak(spoken, TextToSpeech.QUEUE_FLUSH, params, utteranceId) }
     }
 
     fun stop(engine: TextToSpeech?) {

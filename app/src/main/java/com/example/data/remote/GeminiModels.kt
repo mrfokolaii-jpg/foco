@@ -42,10 +42,46 @@ object GeminiModels {
                     model.optString("name")
                         .removePrefix("models/")
                         .takeIf { it.isNotBlank() }
-                }.distinct().sorted()
+                }
+                    .distinct()
+                    // مدل‌های واقعی گفتگوگوی gemini اول می‌آیند و در میان آن‌ها نسخهٔ بالاتر جلوتر.
+                    .sortedWith(compareBy<String>({ chatRank(it) }, { -versionOf(it) }, { it }))
             }
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * رتبهٔ نمایش مدل‌ها.
+     *
+     * پیش‌تر فهرست فقط الفبایی مرتب می‌شد؛ در نتیجه مدل‌هایی مثل `antigravity-preview-*` و
+     * `deep-research-*` بالای فهرست می‌نشستند و با `take(n)` جایی برای `gemini-*` نمی‌ماند.
+     * حالا مدل‌های گفتگوگوی gemini اول می‌آیند:
+     *   ۰ = gemini پایدار (بدون preview/exp)
+     *   ۱ = gemini پیش‌نمایشی یا آزمایشی
+     *   ۲ = بقیهٔ مدل‌ها
+     */
+    /**
+     * نسخهٔ مدل از روی شناسه — `gemini-3.5-flash-lite` → 3.5 و `gemini-3.1-pro` → 3.1.
+     * مدل‌های بدون شمارهٔ نسخه صفر می‌گیرند و آخر می‌ایستند.
+     */
+    private fun versionOf(name: String): Double {
+        val match = Regex("""gemini-(\d+)(?:\.(\d+))?""").find(name) ?: return 0.0
+        val major = match.groupValues[1].toDoubleOrNull() ?: 0.0
+        val minor = match.groupValues[2].toDoubleOrNull() ?: 0.0
+        return major + minor / 10.0
+    }
+
+    private fun chatRank(name: String): Int {
+        val isGemini = name.startsWith("gemini-")
+        val isUnstable = name.contains("preview", ignoreCase = true) ||
+            name.contains("experimental", ignoreCase = true) ||
+            name.contains("-exp", ignoreCase = true)
+        return when {
+            isGemini && !isUnstable -> 0
+            isGemini -> 1
+            else -> 2
         }
     }
 }

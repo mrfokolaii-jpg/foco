@@ -60,15 +60,54 @@ object AiModelCatalog {
     /**
      * A Gemini model discovered live from the user's key. Nothing is pre-stored — [modelId]
      * is exactly the id Google returned for that key.
+     *
+     * [title] is only a prettier rendering of that same id (`gemini-3.5-flash-lite` shows as
+     * «3.5 Flash-Lite»)، و شناسهٔ خام هم در زیرنویس می‌آید تا معلوم باشد چه چیزی صدا زده می‌شود.
      */
     fun gemini(modelId: String): CatalogModel = CatalogModel(
         id = GEMINI_ID_PREFIX + modelId,
-        title = modelId,
-        subtitle = "از کلید Gemini خودت واکشی شد",
+        title = prettyGeminiLabel(modelId),
+        subtitle = modelId,
         provider = AiProviderKind.GEMINI,
         apiModelId = modelId,
         badge = "Gemini"
     )
+
+    /**
+     * شناسهٔ خام مدل را به برچسب خوانا تبدیل می‌کند — فقط برای نمایش.
+     * شناسهٔ واقعی مدل (`apiModelId`) هرگز تغییر نمی‌کند.
+     *
+     *   gemini-3.5-flash-lite            →  3.5 Flash Lite
+     *   gemini-3.1-pro                   →  3.1 Pro
+     *   gemini-1.5-flash-8b              →  1.5 Flash 8B
+     *   gemini-2.5-pro-preview-04-2026   →  2.5 Pro Preview 04-2026
+     */
+    private fun prettyGeminiLabel(modelId: String): String {
+        val tokens = modelId.removePrefix("gemini-")
+            .split("-")
+            .filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return modelId
+
+        val numberRegex = Regex("""\d+(\.\d+)?""")
+        val isNumber = { value: String -> numberRegex.matches(value) }
+
+        val out = StringBuilder()
+        tokens.forEachIndexed { index, raw ->
+            val token = when {
+                raw.matches(Regex("""\d+[bB]""")) -> raw.uppercase()   // 8b → 8B
+                isNumber(raw) -> raw
+                else -> raw.replaceFirstChar { it.uppercase() }
+            }
+            if (index == 0) {
+                out.append(token)
+            } else {
+                // دو عدد پشت‌سرهم مثل 04 و 2026 با خط تیره به هم می‌چسبند: 04-2026
+                val joinWithDash = isNumber(raw) && isNumber(tokens[index - 1])
+                out.append(if (joinWithDash) "-" else " ").append(token)
+            }
+        }
+        return out.toString()
+    }
 
     /** Prefix that ties a catalog entry back to its hand-wired provider. */
     const val CUSTOM_ID_PREFIX = "custom:"
