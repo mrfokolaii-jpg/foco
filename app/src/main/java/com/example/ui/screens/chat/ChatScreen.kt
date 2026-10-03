@@ -67,6 +67,7 @@ import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -147,6 +148,7 @@ fun ChatScreen(
     onTwoWayVoiceConsumed: () -> Unit = {},
     onNavigateToScreen: (String) -> Unit = {},
     onOpenMenu: () -> Unit = {},
+    onOpenQuickPanel: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -439,6 +441,10 @@ fun ChatScreen(
                     }
                     IconButton(onClick = { viewModel.startNewConversation() }) {
                         Icon(Icons.Default.Add, contentDescription = "گفتگوی جدید")
+                    }
+                    // پنل «کنترل و تنظیمات» — از لبهٔ چپ باز می‌شود.
+                    IconButton(onClick = onOpenQuickPanel) {
+                        Icon(Icons.Default.Tune, contentDescription = "پنل کنترل و تنظیمات")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
