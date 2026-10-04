@@ -7,6 +7,8 @@ import com.example.data.model.AiProviderKind
 import com.example.data.model.CatalogModel
 import com.example.data.model.ChatMessage
 import com.example.data.offline.OfflineEngine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * تنها جایی که تصمیم گرفته می‌شود پیام کاربر به کدام هوش مصنوعی برود.
@@ -16,6 +18,15 @@ import com.example.data.offline.OfflineEngine
  * روشن گفته می‌شود که کاربر باید چه کار کند.
  */
 object AiRouter {
+
+    /**
+     * ارسال پیام به مدل انتخاب‌شده.
+     *
+     * کل کار روی رشتهٔ ورودی/خروجی (IO) انجام می‌شود. پیش‌تر هیچ تضمینی نبود و یک
+     * درخواست شبکه می‌توانست روی رشتهٔ اصلی بیفتد؛ اندروید در این حالت برنامه را با
+     * خطای `NetworkOnMainThreadException` می‌بندد — دقیقاً همان چیزی که کاربر می‌دید:
+     * پیام می‌فرستاد و از برنامه بیرون انداخته می‌شد.
+     */
     suspend fun chat(
         catalogModel: CatalogModel,
         conversationHistory: List<ChatMessage>,
@@ -23,6 +34,28 @@ object AiRouter {
         keyStore: ApiKeyStore,
         enableThinkingMode: Boolean = false,
         enableGoogleSearch: Boolean = false
+    ): ApiResult<ChatApiResponse> = withContext(Dispatchers.IO) {
+        chatOnWorkerThread(
+            catalogModel = catalogModel,
+            conversationHistory = conversationHistory,
+            systemInstructionText = systemInstructionText,
+            keyStore = keyStore,
+            enableThinkingMode = enableThinkingMode,
+            enableGoogleSearch = enableGoogleSearch
+        )
+    }
+
+    /**
+     * بدنهٔ اصلی، جدا نوشته شده تا `return`های ساده مجاز باشند (بازگشتِ ساده داخل
+     * بلوک `withContext` خطای کامپایل می‌دهد).
+     */
+    private suspend fun chatOnWorkerThread(
+        catalogModel: CatalogModel,
+        conversationHistory: List<ChatMessage>,
+        systemInstructionText: String,
+        keyStore: ApiKeyStore,
+        enableThinkingMode: Boolean,
+        enableGoogleSearch: Boolean
     ): ApiResult<ChatApiResponse> {
         val key = keyStore.keyFor(catalogModel.provider)
 
@@ -31,7 +64,12 @@ object AiRouter {
         if (enableGoogleSearch && conversationHistory.isNotEmpty()) {
             val lastUserQuery = conversationHistory.lastOrNull { it.sender.name == "USER" }?.text.orEmpty()
             if (lastUserQuery.isNotBlank()) {
-                val searchSnippets = WebSearchProvider.searchLive(lastUserQuery)
+                // اگر جستجوی وب شکست بخورد، فرستادن پیام نباید شکست بخورد.
+                val searchSnippets = try {
+                    WebSearchProvider.searchLive(lastUserQuery)
+                } catch (_: Throwable) {
+                    ""
+                }
                 if (searchSnippets.isNotBlank()) {
                     effectiveSystemPrompt += "\n\n[اطلاعات زنده دریافت شده از وب]:\n$searchSnippets"
                 }

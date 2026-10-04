@@ -13,6 +13,7 @@ import com.example.data.agent.AgentEngine
 import com.example.data.agent.AgentEvent
 import com.example.data.agent.FokoTools
 import com.example.data.local.ApiKeyStore
+import com.example.data.local.CrashReporter
 import com.example.data.local.VoiceSessionBus
 import com.example.data.local.AppDatabase
 import com.example.data.local.ChatConversationEntity
@@ -419,6 +420,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Save conversation and message to Room
         viewModelScope.launch {
+          // هیچ خطایی نباید کاربر را از برنامه بیرون بیندازد. پیش‌تر هر استثنای
+          // گرفته‌نشده در همین بلوک، کل اپ را می‌بست (کاربر: «پیام دادم، از اپ پرت شدم»).
+          try {
             chatDao.insertConversation(
                 ChatConversationEntity(
                     id = conversationId,
@@ -500,6 +504,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     timestamp = aiMsg.timestamp
                 )
             )
+          } catch (error: Throwable) {
+            // خطا به یک پیام قابل‌فهم در همان گفتگو تبدیل می‌شود، و متن کاملش برای
+            // «تنظیمات › گزارش خطا» ذخیره می‌شود.
+            CrashReporter.record(
+                context = getApplication(),
+                error = error,
+                where = "ارسال پیام در چت"
+            )
+            _uiState.value = _uiState.value.copy(
+                messages = _uiState.value.messages + ChatMessage(
+                    sender = MessageSender.ASSISTANT,
+                    text = "⚠️ خطایی رخ داد و پیام فرستاده نشد.\n" +
+                        (error.message ?: error::class.java.simpleName) +
+                        "\n\nمتن کامل خطا در «تنظیمات › گزارش خطا» ذخیره شد؛ همان را بفرست.",
+                    isError = true
+                ),
+                isLoading = false,
+                statusMessage = null
+            )
+          }
         }
     }
 

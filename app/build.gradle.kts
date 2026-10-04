@@ -18,8 +18,8 @@ android {
     minSdk = 24
     targetSdk = 36
     // با هر نسخهٔ جدید این عدد را یکی زیاد کن تا اندروید نصب نسخهٔ بالاتر را بپذیرد.
-    versionCode = 5
-    versionName = "2.1"
+    versionCode = 6
+    versionName = "2.2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

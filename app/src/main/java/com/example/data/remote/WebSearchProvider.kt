@@ -45,10 +45,22 @@ object WebSearchProvider {
     }
 
     /** Text blob used to ground the language model. */
-    suspend fun searchLive(query: String): String {
-        val hits = tryHtmlSearch(query.trim(), 6)
+    /**
+     * جستجوی زنده.
+     *
+     * مهم: این تابع مستقیماً از مسیر ارسال پیام صدا زده می‌شود. پیش‌تر هیچ جابه‌جایی
+     * رشته‌ای انجام نمی‌شد و درخواست شبکه روی رشتهٔ اصلی اجرا می‌شد؛ همین باعث می‌شد
+     * اندروید با خطای NetworkOnMainThreadException برنامه را ببندد. حالا حتماً روی
+     * رشتهٔ ورودی/خروجی اجرا می‌شود.
+     */
+    suspend fun searchLive(query: String): String = withContext(Dispatchers.IO) {
+        val hits = try {
+            tryHtmlSearch(query.trim(), 6)
+        } catch (_: Exception) {
+            emptyList()
+        }
         if (hits.isNotEmpty()) {
-            return hits.joinToString("\n") { hit ->
+            return@withContext hits.joinToString("\n") { hit ->
                 buildString {
                     appendLine("عنوان: ${hit.title}")
                     if (hit.url.isNotBlank()) appendLine("لینک: ${hit.url}")
@@ -56,7 +68,7 @@ object WebSearchProvider {
                 }.trim()
             }
         }
-        return instantAnswer(query)
+        instantAnswer(query)
     }
 
     private fun tryHtmlSearch(query: String, limit: Int): List<SearchHit> {

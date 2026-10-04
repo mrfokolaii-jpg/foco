@@ -645,6 +645,9 @@ fun SettingsScreen(
         OfflineTuningCard()
         KnowledgeBaseCard()
 
+        // اگر اپ بسته شد یا پیامی فرستاده نشد، متن دقیق خطا این‌جا است.
+        CrashReportCard()
+
         // Where FOKO is allowed to write: models, downloads and knowledge files.
         StorageSettingsCard(context = context)
 
