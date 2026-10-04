@@ -63,6 +63,120 @@ object KnowledgeBase {
 
     fun isReady(context: Context): Boolean = loadChunks(context).isNotEmpty()
 
+    /** دستهٔ فارسی برای هر سند همراهِ اپ (بر اساس شمارهٔ ابتدای نام فایل). */
+    private val BUNDLED_CATEGORIES = mapOf(
+        "00" to "راهنما",
+        "01" to "طراحی سایت",
+        "02" to "اپلیکیشن",
+        "03" to "برنامه‌نویسی",
+        "04" to "سئو",
+        "05" to "شبکه‌های اجتماعی",
+        "06" to "ترید و ارز دیجیتال",
+        "07" to "هوش مصنوعی",
+        "08" to "ابزارها و گیت",
+        "09" to "امنیت",
+        "10" to "جستجوی حرفه‌ای"
+    )
+
+    /** سقف کل قطعه‌ها؛ از بزرگ شدن بی‌رویهٔ فهرست جلوگیری می‌کند. */
+    private const val MAX_TOTAL_CHUNKS = 4000
+
+    /**
+     * نصب پایگاه دانشِ همراهِ خودِ اپ.
+     *
+     * دلیل وجود: کاربر روی گوشی نمی‌توانست فایل ZIP را دانلود کند. حالا اسناد پایه
+     * داخل خود اپ هستند و از همان اولین اجرا آماده‌اند — هیچ دانلودی لازم نیست.
+     * اگر کاربر خودش چیزی اضافه کرده باشد، دست‌نخورده می‌ماند و روی آن اضافه نمی‌شود.
+     */
+    suspend fun installBundled(context: Context): Int = withContext(Dispatchers.IO) {
+        if (isReady(context)) return@withContext stats(context).documents
+
+        val names = runCatching { context.assets.list("knowledge") }.getOrNull().orEmpty()
+        val documents = mutableListOf<Triple<String, String, String>>()
+
+        names.filter { it.lowercase().endsWith(".md") }.forEach { assetName ->
+            val text = runCatching {
+                context.assets.open("knowledge/$assetName")
+                    .bufferedReader(Charsets.UTF_8)
+                    .use { it.readText() }
+            }.getOrDefault("")
+            if (text.isNotBlank()) {
+                val category = BUNDLED_CATEGORIES[assetName.take(2)] ?: "عمومی"
+                documents += Triple(category, assetName.removeSuffix(".md"), text)
+            }
+        }
+
+        if (documents.isEmpty()) return@withContext 0
+        writeIndex(context, buildChunks(documents))
+        cacheStamp = -1
+        documents.size
+    }
+
+    /**
+     * آوردن دانش از هر فایلی که کاربر انتخاب می‌کند.
+     *
+     * هم ZIP (چند سند) و هم یک فایل متنی تنها پذیرفته می‌شود؛ چون روی گوشی ممکن است
+     * نتوان ZIP گرفت یا باز کرد.
+     */
+    suspend fun importAny(
+        context: Context,
+        uri: Uri,
+        onProgress: (Int) -> Unit = {}
+    ): ApiResult<KnowledgeStats> = withContext(Dispatchers.IO) {
+        val name = queryDisplayName(context, uri)
+        if (name.lowercase().endsWith(".zip")) {
+            importZip(context, uri, onProgress)
+        } else {
+            importPlainText(context, uri, name)
+        }
+    }
+
+    /** نام فایل انتخاب‌شده در حافظهٔ گوشی. */
+    private fun queryDisplayName(context: Context, uri: Uri): String {
+        runCatching {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) {
+                    val name = cursor.getString(index)
+                    if (!name.isNullOrBlank()) return name
+                }
+            }
+        }
+        return uri.lastPathSegment?.substringAfterLast('/') ?: "document.md"
+    }
+
+    /** یک فایل متنی تنها (بدون ZIP). */
+    private suspend fun importPlainText(
+        context: Context,
+        uri: Uri,
+        name: String
+    ): ApiResult<KnowledgeStats> = withContext(Dispatchers.IO) {
+        val text = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                input.bufferedReader(Charsets.UTF_8).readText().take(MAX_DOC_CHARS)
+            }.orEmpty()
+        }.getOrDefault("")
+
+        if (text.isBlank()) {
+            return@withContext ApiResult.Error("این فایل متنی خالی بود یا خوانده نشد.")
+        }
+        val document = Triple("فایل خودت", name.substringBeforeLast('.'), text)
+        mergeChunks(context, buildChunks(listOf(document)))
+    }
+
+    /** قطعه‌های تازه به فهرست موجود اضافه می‌شوند (چیزی پاک نمی‌شود). */
+    private fun mergeChunks(context: Context, fresh: List<KnowledgeChunk>): ApiResult<KnowledgeStats> {
+        if (fresh.isEmpty()) {
+            return ApiResult.Error("از این فایل هیچ متن مفیدی برای فهرست‌سازی درنیامد.")
+        }
+        val merged = (loadChunks(context) + fresh)
+            .distinctBy { it.title + "|" + it.text.take(120) }
+            .take(MAX_TOTAL_CHUNKS)
+        writeIndex(context, merged)
+        cacheStamp = -1
+        return ApiResult.Success(stats(context))
+    }
+
     /**
      * خواندن ZIP انتخابی کاربر و ساخت فهرست.
      *
@@ -107,10 +221,8 @@ object KnowledgeBase {
                 )
             }
 
-            val chunks = buildChunks(documents)
-            writeIndex(context, chunks)
-            cacheStamp = -1   // فهرست حافظه باطل شود تا از فایل تازه خوانده شود
-            ApiResult.Success(stats(context))
+            // اسناد تازه به فهرست موجود اضافه می‌شوند.
+            mergeChunks(context, buildChunks(documents))
         } catch (error: Exception) {
             ApiResult.Error("خواندن پایگاه دانش انجام نشد: ${error.localizedMessage ?: "خطای نامشخص"}")
         }

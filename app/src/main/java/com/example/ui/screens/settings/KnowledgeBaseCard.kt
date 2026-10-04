@@ -78,7 +78,7 @@ fun KnowledgeBaseCard() {
         scope.launch {
             busy = true
             status = "در حال خواندن و فهرست‌سازی پایگاه دانش..."
-            when (val result = KnowledgeBase.importZip(context, uri)) {
+            when (val result = KnowledgeBase.importAny(context, uri)) {
                 is ApiResult.Success -> {
                     stats = result.data
                     status = "✓ پایگاه دانش آماده شد: ${result.data.documents} سند و " +
@@ -107,8 +107,9 @@ fun KnowledgeBaseCard() {
             }
 
             Text(
-                text = "یک فایل ZIP از فایل‌های متنی بده. اپ فقط بخش مربوط به سؤال تو را " +
-                    "پیدا می‌کند و به مدل آفلاین می‌دهد — بدون اینترنت و بدون بزرگ کردن مدل.",
+                text = "یک پایگاه دانش پایه همراه خودِ اپ نصب شده است — لازم نیست چیزی " +
+                    "دانلود کنی. اپ فقط بخش مربوط به سؤال تو را پیدا می‌کند و به مدل آفلاین " +
+                    "می‌دهد — بدون اینترنت و بدون بزرگ کردن مدل.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -130,7 +131,7 @@ fun KnowledgeBaseCard() {
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
             ) {
-                Text("انتخاب فایل ZIP پایگاه دانش", color = Color.Black, fontWeight = FontWeight.Bold)
+                Text("افزودن فایل خودت (ZIP یا یک فایل متنی)", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
 
             Row(
@@ -210,11 +211,15 @@ fun KnowledgeBaseCard() {
                 }
 
                 TextButton(onClick = {
-                    KnowledgeBase.clear(context)
-                    stats = KnowledgeBase.stats(context)
-                    results = emptyList()
-                    query = ""
-                    status = "پایگاه دانش پاک شد."
+                    scope.launch {
+                        KnowledgeBase.clear(context)
+                        // پایگاه دانشِ همراهِ اپ بی‌درنگ برمی‌گردد تا کاربر دست‌خالی نماند.
+                        KnowledgeBase.installBundled(context)
+                        stats = KnowledgeBase.stats(context)
+                        results = emptyList()
+                        query = ""
+                        status = "پاک شد — پایگاه دانش پیش‌فرض اپ برگشت."
+                    }
                 }) {
                     Icon(
                         Icons.Default.Delete,
@@ -223,7 +228,7 @@ fun KnowledgeBaseCard() {
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("پاک کردن پایگاه دانش", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    Text("پاک کردن (پیش‌فرض برمی‌گردد)", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 }
             }
 
