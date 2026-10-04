@@ -19,6 +19,7 @@ import com.example.data.local.ChatConversationEntity
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.LibraryItemEntity
 import com.example.data.model.AiModelCatalog
+import com.example.data.offline.OfflineEngine
 import com.example.data.model.AiModelOption
 import com.example.data.model.AiProviderKind
 import com.example.data.model.CatalogModel
@@ -101,6 +102,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
+        // موتور آفلاین برای خواندن تنظیمات سرعت و پایگاه دانش به context نیاز دارد.
+        OfflineEngine.attach(application)
         val defaultCatalog = AiRouter.pickDefault(keyStore)
         GeminiApiService.runtimeApiKeyOverride = keyStore.getGeminiKey()
         _uiState.value = _uiState.value.copy(

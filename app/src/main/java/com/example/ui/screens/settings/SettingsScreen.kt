@@ -641,6 +641,10 @@ fun SettingsScreen(
         // ---------------------------------------------------------------
         OfflineModelCard(onChanged = { viewModel.loadKeys() })
 
+        // تنظیمات سرعت/گرما و پایگاه دانش محلی — هر دو بخشِ مدل آفلاین‌اند.
+        OfflineTuningCard()
+        KnowledgeBaseCard()
+
         // Where FOKO is allowed to write: models, downloads and knowledge files.
         StorageSettingsCard(context = context)
 

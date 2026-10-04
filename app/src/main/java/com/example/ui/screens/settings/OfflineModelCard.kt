@@ -71,6 +71,9 @@ import java.io.File
 @Composable
 fun OfflineModelCard(onChanged: () -> Unit) {
     val context = LocalContext.current
+    // موتور باید تنظیمات سرعت و پایگاه دانش را بشناسد، حتی اگر کاربر از این صفحه
+    // وارد شود (مسیر چت هم جداگانه attach می‌کند).
+    remember(context) { OfflineEngine.attach(context.applicationContext); true }
     val store = remember { ApiKeyStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
 
