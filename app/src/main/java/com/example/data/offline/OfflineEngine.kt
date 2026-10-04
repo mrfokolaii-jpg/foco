@@ -78,7 +78,7 @@ object OfflineEngine {
         loadedPath = ""
     }
 
-    private fun ensureLoaded(path: String): ApiResult<String> {
+    private suspend fun ensureLoaded(path: String): ApiResult<String> {
         if (!isDeviceSupported()) {
             return ApiResult.Error(
                 "اجرای مدل آفلاین روی این گوشی پشتیبانی نمی‌شود (فقط گوشی‌های arm64)."

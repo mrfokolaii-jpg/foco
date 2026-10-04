@@ -323,10 +323,9 @@ fun SettingsScreen(
                             targets.forEach { target ->
                                 val outcome = try {
                                     ProviderDiagnostics.check(
-                                        target.provider,
-                                        target.key.ifBlank { store.keyFor(target.provider) },
-                                        target.baseUrl,
-                                        target.model
+                                        provider = target.provider,
+                                        apiKey = target.key.ifBlank { store.keyFor(target.provider) },
+                                        modelPath = target.model
                                     )
                                 } catch (error: Exception) {
                                     ApiResult.Error(error.localizedMessage ?: "خطای نامشخص")
@@ -530,11 +529,6 @@ fun SettingsScreen(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        if (uiState.snapshot.huggingFaceConfigured || uiState.snapshot.xaiGrokConfigured ||
-            uiState.snapshot.openRouterConfigured || uiState.snapshot.groqConfigured
-        ) {
-        }
-
         // Save Button
         Button(
             onClick = {
