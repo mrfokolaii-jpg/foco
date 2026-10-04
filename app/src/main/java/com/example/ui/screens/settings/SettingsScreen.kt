@@ -87,7 +87,6 @@ import com.example.data.connectors.ConnectorStore
 import com.example.data.local.ApiKeySnapshot
 import com.example.data.local.ApiKeyStore
 import com.example.data.model.AiProviderKind
-import com.example.data.model.CustomProvider
 import com.example.data.remote.ApiResult
 import com.example.data.remote.ProviderDiagnostics
 import com.example.service.FokoAccessibilityService
@@ -97,28 +96,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class SettingsUiState(
     val huggingFace: String = "",
-    val xaiGrok: String = "",
-    val openRouter: String = "",
-    val groq: String = "",
     val gemini: String = "",
     val userEmail: String = "",
     val accessibilityEnabled: Boolean = false,
     val snapshot: ApiKeySnapshot = ApiKeySnapshot(),
-    /** سرویس‌های دستی کاربر، برای نمایش وضعیت اتصال هرکدام (فعال + نام مدل). */
-    val customProviders: List<CustomProvider> = emptyList(),
-    // 9Router — the self-hosted router that rotates free models for us
-    val nineRouterBaseUrl: String = ApiKeyStore.DEFAULT_9ROUTER_BASE_URL,
-    val nineRouterKey: String = "",
-    val nineRouterModel: String = "",
-    val nineRouterEnabled: Boolean = false,
-    // Manual provider: any site, its own URL, key and model
-    val customLabel: String = "",
-    val customBaseUrl: String = "",
-    val customKey: String = "",
-    val customModel: String = ""
+    /** مدل آفلاینی که کاربر اضافه کرده — برای نمایش در وضعیت اتصال. */
+    val offlineModelName: String = "",
+    val offlineModelPath: String = ""
 )
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -127,6 +115,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        // کلیدهای سرویس‌هایی که دیگر در اپ نیستند (Groq، OpenRouter، xAI، 9Router و
+        // کلیدهای دستی) یک‌بار برای همیشه از حافظه پاک می‌شوند.
+        runCatching { keyStore.purgeRemovedProviders() }
         loadKeys()
     }
 
@@ -144,38 +135,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
         _uiState.value = SettingsUiState(
             huggingFace = keyStore.getHuggingFaceKey(),
-            xaiGrok = keyStore.getXaiGrokKey(),
-            openRouter = keyStore.getOpenRouterKey(),
-            groq = keyStore.getGroqKey(),
-            gemini = keyStore.getGeminiOverride(),
+            gemini = keyStore.getGeminiKey(),
             userEmail = keyStore.getUserEmail(),
             accessibilityEnabled = keyStore.isAccessibilityEnabled(),
             snapshot = keyStore.snapshot(),
-            customProviders = keyStore.getCustomProviders(),
-            nineRouterBaseUrl = keyStore.getNineRouterBaseUrl(),
-            nineRouterKey = keyStore.getNineRouterKey(),
-            nineRouterModel = keyStore.getNineRouterModel(),
-            nineRouterEnabled = keyStore.isNineRouterEnabled(),
-            customLabel = keyStore.getCustomLabel(),
-            customBaseUrl = keyStore.getCustomBaseUrl(),
-            customKey = keyStore.getCustomKey(),
-            customModel = keyStore.getCustomModel()
+            offlineModelName = keyStore.getOfflineModelName(),
+            offlineModelPath = keyStore.getOfflineModelPath()
         )
-    }
-
-    fun saveNineRouter(baseUrl: String, key: String, model: String, enabled: Boolean) {
-        viewModelScope.launch {
-            keyStore.setNineRouter(baseUrl, key, model)
-            keyStore.setNineRouterEnabled(enabled)
-            loadKeys()
-        }
-    }
-
-    fun setNineRouterEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            keyStore.setNineRouterEnabled(enabled)
-            loadKeys()
-        }
     }
 
     /** کلیدهای پلاگین (گیت‌هاب / هاگینگ‌فیس) را ذخیره می‌کند و فوراً در اختیار ربات می‌گذارد. */
@@ -197,38 +163,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun saveCustom(label: String, baseUrl: String, key: String, model: String) {
-        viewModelScope.launch {
-            keyStore.setCustom(label, baseUrl, key, model)
-            loadKeys()
-        }
-    }
-
-    /** Wipes every key except the Google Gemini one. */
-    fun clearOtherKeys() {
-        viewModelScope.launch {
-            keyStore.setHuggingFaceKey("")
-            keyStore.setXaiGrokKey("")
-            keyStore.setOpenRouterKey("")
-            keyStore.setGroqKey("")
-            loadKeys()
-        }
-    }
-
     fun saveKeys(
         hf: String,
-        grok: String,
-        or: String,
-        groq: String,
         gem: String,
         email: String,
         accessibility: Boolean
     ) {
         viewModelScope.launch {
             keyStore.setHuggingFaceKey(hf)
-            keyStore.setXaiGrokKey(grok)
-            keyStore.setOpenRouterKey(or)
-            keyStore.setGroqKey(groq)
             keyStore.setGeminiKey(gem)
             keyStore.setUserEmail(email)
             keyStore.setAccessibilityEnabled(accessibility)
@@ -247,18 +189,8 @@ fun SettingsScreen(
     val systemAccessibilityEnabled = FokoAccessibilityService.isEnabledInSystem(context)
 
     var hfKey by remember(uiState.huggingFace) { mutableStateOf(uiState.huggingFace) }
-    var grokKey by remember(uiState.xaiGrok) { mutableStateOf(uiState.xaiGrok) }
-    var orKey by remember(uiState.openRouter) { mutableStateOf(uiState.openRouter) }
-    var groqKey by remember(uiState.groq) { mutableStateOf(uiState.groq) }
     var gemKey by remember(uiState.gemini) { mutableStateOf(uiState.gemini) }
     var emailInput by remember(uiState.userEmail) { mutableStateOf(uiState.userEmail) }
-    var nineRouterBase by remember(uiState.nineRouterBaseUrl) { mutableStateOf(uiState.nineRouterBaseUrl) }
-    var nineRouterKey by remember(uiState.nineRouterKey) { mutableStateOf(uiState.nineRouterKey) }
-    var nineRouterModel by remember(uiState.nineRouterModel) { mutableStateOf(uiState.nineRouterModel) }
-    var customLabel by remember(uiState.customLabel) { mutableStateOf(uiState.customLabel) }
-    var customBase by remember(uiState.customBaseUrl) { mutableStateOf(uiState.customBaseUrl) }
-    var customKey by remember(uiState.customKey) { mutableStateOf(uiState.customKey) }
-    var customModel by remember(uiState.customModel) { mutableStateOf(uiState.customModel) }
     var accessibilityState by remember(uiState.accessibilityEnabled) { mutableStateOf(uiState.accessibilityEnabled) }
     var showAccessibilityHelpDialog by remember { mutableStateOf(false) }
 
@@ -373,40 +305,18 @@ fun SettingsScreen(
                             val store = ApiKeyStore(context)
                             val targets = buildList {
                                 if (uiState.gemini.isNotBlank()) add(
-                                    ProviderCheck("Google Gemini", AiProviderKind.GEMINI, "", "")
+                                    ProviderCheck("Google Gemini", AiProviderKind.GEMINI)
                                 )
                                 if (uiState.huggingFace.isNotBlank()) add(
-                                    ProviderCheck("Hugging Face", AiProviderKind.HUGGINGFACE, "", "")
+                                    ProviderCheck("Hugging Face", AiProviderKind.HUGGINGFACE)
                                 )
-                                if (uiState.openRouter.isNotBlank()) add(
-                                    ProviderCheck("OpenRouter", AiProviderKind.OPENROUTER, "", "")
-                                )
-                                if (uiState.groq.isNotBlank()) add(
-                                    ProviderCheck("Groq", AiProviderKind.GROQ, "", "")
-                                )
-                                if (uiState.xaiGrok.isNotBlank()) add(
-                                    ProviderCheck("xAI Grok", AiProviderKind.XAI_GROK, "", "")
-                                )
-                                if (uiState.snapshot.nineRouterConfigured) add(
+                                if (uiState.offlineModelPath.isNotBlank()) add(
                                     ProviderCheck(
-                                        "9Router",
-                                        AiProviderKind.NINE_ROUTER,
-                                        store.getNineRouterBaseUrl(),
-                                        store.getNineRouterModel()
+                                        label = "مدل آفلاین",
+                                        provider = AiProviderKind.OFFLINE,
+                                        model = uiState.offlineModelPath
                                     )
                                 )
-                                uiState.customProviders.forEach { provider ->
-                                    add(
-                                        ProviderCheck(
-                                            label = provider.label,
-                                            provider = AiProviderKind.CUSTOM,
-                                            baseUrl = provider.baseUrl,
-                                            model = provider.model,
-                                            // هر سرویس دستی کلید خودش را دارد، نه کلید اولی.
-                                            key = provider.apiKey
-                                        )
-                                    )
-                                }
                             }
 
                             val out = mutableListOf<ProviderCheck>()
@@ -474,30 +384,20 @@ fun SettingsScreen(
                     }
                 }
 
-                // هوش مصنوعی داخلی فوکو کاملاً حذف شد؛ به‌جای آن اگر هیچ سرویسی وصل
-                // نباشد صریح گفته می‌شود.
-                if (uiState.customProviders.isEmpty() && !uiState.snapshot.hasAny()) {
+                // اگر هیچ‌کدام وصل نباشد صریح گفته می‌شود (هیچ هوش مصنوعی داخلی وجود ندارد).
+                if (!uiState.snapshot.hasAny()) {
                     Text(
-                        text = "هیچ سرویس هوش مصنوعی وصل نیست. کلید جمینای یا یک سرویس دستی اضافه کن.",
+                        text = "هیچ هوش مصنوعی‌ای وصل نیست. کلید جمینای را وارد کن یا یک مدل آفلاین اضافه کن.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
 
-                // سرویس‌های دستی: وضعیت فعال/غیرفعال به‌همراه نام مدل انتخاب‌شده.
-                uiState.customProviders.forEach { provider ->
-                    ProviderStatusRow(
-                        title = provider.label,
-                        subtitle = if (provider.model.isBlank()) {
-                            "مدل انتخاب نشده"
-                        } else {
-                            "مدل: ${provider.model}"
-                        },
-                        isActive = provider.enabled &&
-                            provider.baseUrl.isNotBlank() &&
-                            provider.model.isNotBlank()
-                    )
-                }
+                ProviderStatusRow(
+                    title = "Google Gemini (جمینای گوگل)",
+                    subtitle = if (uiState.snapshot.geminiConfigured) "کلید ذخیره شد — فهرست مدل‌های همین کلید خوانده می‌شود" else "کلید وارد نشده",
+                    isActive = uiState.snapshot.geminiConfigured
+                )
 
                 ProviderStatusRow(
                     title = "Hugging Face (روتر استنتاج)",
@@ -505,28 +405,16 @@ fun SettingsScreen(
                     isActive = uiState.snapshot.huggingFaceConfigured
                 )
 
+                // مدل آفلاین روی خود گوشی: نه اینترنت می‌خواهد، نه کلید.
                 ProviderStatusRow(
-                    title = "xAI Grok (گروک رسمی console.x.ai)",
-                    subtitle = if (uiState.snapshot.xaiGrokConfigured) "فعال و متصل به xAI" else "کلید وارد نشده",
-                    isActive = uiState.snapshot.xaiGrokConfigured
-                )
-
-                ProviderStatusRow(
-                    title = "OpenRouter (مدل‌های متنوع)",
-                    subtitle = if (uiState.snapshot.openRouterConfigured) "کلید ذخیره شد — فهرست مدل‌های همین کلید خوانده می‌شود" else "کلید وارد نشده",
-                    isActive = uiState.snapshot.openRouterConfigured
-                )
-
-                ProviderStatusRow(
-                    title = "Groq Cloud (Llama 3.3 سریع)",
-                    subtitle = if (uiState.snapshot.groqConfigured) "فعال و آماده" else "کلید وارد نشده",
-                    isActive = uiState.snapshot.groqConfigured
-                )
-
-                ProviderStatusRow(
-                    title = "Google Gemini (جمینای چندرسانه‌ای)",
-                    subtitle = if (uiState.snapshot.geminiConfigured) "فعال" else "کلید وارد نشده",
-                    isActive = uiState.snapshot.geminiConfigured
+                    title = "هوش مصنوعی آفلاین (روی خود گوشی)",
+                    subtitle = when {
+                        uiState.offlineModelPath.isBlank() -> "مدلی اضافه نشده"
+                        File(uiState.offlineModelPath).exists() ->
+                            "آماده — ${uiState.offlineModelName}"
+                        else -> "فایل مدل پیدا نمی‌شود: ${uiState.offlineModelPath}"
+                    },
+                    isActive = uiState.snapshot.offlineConfigured
                 )
             }
         }
@@ -563,7 +451,7 @@ fun SettingsScreen(
                             if (newState) {
                                 showAccessibilityHelpDialog = true
                             } else {
-                                viewModel.saveKeys(hfKey, grokKey, orKey, groqKey, gemKey, emailInput, false)
+                                viewModel.saveKeys(hfKey, gemKey, emailInput, false)
                             }
                         },
                         colors = SwitchDefaults.colors(
@@ -645,9 +533,6 @@ fun SettingsScreen(
         if (uiState.snapshot.huggingFaceConfigured || uiState.snapshot.xaiGrokConfigured ||
             uiState.snapshot.openRouterConfigured || uiState.snapshot.groqConfigured
         ) {
-            TextButton(onClick = { viewModel.clearOtherKeys() }) {
-                Text("پاک کردن کلیدهای دیگر (Hugging Face / xAI / OpenRouter / Groq)", color = MaterialTheme.colorScheme.error)
-            }
         }
 
         // Save Button
@@ -655,9 +540,6 @@ fun SettingsScreen(
             onClick = {
                 viewModel.saveKeys(
                     hf = hfKey,
-                    grok = grokKey,
-                    or = orKey,
-                    groq = groqKey,
                     gem = gemKey,
                     email = emailInput,
                     accessibility = systemAccessibilityEnabled
@@ -759,7 +641,11 @@ fun SettingsScreen(
         // Hand-wired providers: as many sites as you like, each with its
         // own base URL, key and model. All of them join the rotation.
         // ---------------------------------------------------------------
-        CustomProvidersCard(context = context, onChanged = { viewModel.loadKeys() })
+        // ---------------------------------------------------------------
+        // هوش مصنوعی آفلاین: مدل GGUF از ZIP یا از حافظهٔ خود گوشی خوانده می‌شود
+        // و بدون اینترنت و بدون کلید کار می‌کند.
+        // ---------------------------------------------------------------
+        OfflineModelCard(onChanged = { viewModel.loadKeys() })
 
         // Where FOKO is allowed to write: models, downloads and knowledge files.
         StorageSettingsCard(context = context)

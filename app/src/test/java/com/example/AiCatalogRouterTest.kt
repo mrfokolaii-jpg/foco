@@ -33,8 +33,17 @@ class AiCatalogRouterTest {
     }
 
     @Test
+    fun onlyGeminiHuggingFaceOfflineAndNoneExist() {
+        // کلیدهای Groq / OpenRouter / xAI / 9Router و سرویس‌های دستی حذف شده‌اند.
+        assertEquals(
+            listOf("NONE", "GEMINI", "HUGGINGFACE", "OFFLINE"),
+            AiProviderKind.entries.map { it.name }
+        )
+    }
+
+    @Test
     fun findByIdReturnsKnownModels() {
-        assertNotNull(AiModelCatalog.findById("groq-llama33"))
+        assertNotNull(AiModelCatalog.findById("hf-qwen25"))
         assertNotNull(AiModelCatalog.findById("gemini-flash"))
         assertNull(AiModelCatalog.findById("does-not-exist"))
     }
@@ -43,7 +52,6 @@ class AiCatalogRouterTest {
     fun textModelsExcludeImageCapability() {
         val texts = AiModelCatalog.textModels()
         assertTrue(texts.none { it.capability == ModelCapability.IMAGE })
-        assertTrue(texts.any { it.provider == AiProviderKind.OPENROUTER })
         assertTrue(texts.any { it.provider == AiProviderKind.HUGGINGFACE })
         assertTrue(texts.any { it.provider == AiProviderKind.GEMINI })
     }
@@ -51,12 +59,13 @@ class AiCatalogRouterTest {
     @Test
     fun activeModelsRespectConfiguredKeys() {
         val snapshot = com.example.data.local.ApiKeySnapshot(
-            groqConfigured = true,
-            geminiConfigured = false
+            geminiConfigured = true,
+            huggingFaceConfigured = false,
+            offlineConfigured = false
         )
         val active = AiModelCatalog.activeModels(snapshot)
-        assertTrue(active.any { it.provider == AiProviderKind.GROQ })
-        assertFalse(active.any { it.provider == AiProviderKind.GEMINI })
+        assertTrue(active.any { it.provider == AiProviderKind.GEMINI })
+        assertFalse(active.any { it.provider == AiProviderKind.HUGGINGFACE })
     }
 
     @Test

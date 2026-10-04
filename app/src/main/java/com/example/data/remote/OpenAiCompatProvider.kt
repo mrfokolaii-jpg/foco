@@ -62,12 +62,9 @@ object ProviderHttp {
     }
 }
 
-/** آدرس پایهٔ هر سرویس — هم برای گفتگو و هم برای خواندن فهرست مدل‌ها. */
+/** آدرس پایهٔ سرویس‌ها — هم برای گفتگو و هم برای خواندن فهرست مدل‌ها. */
 object ProviderEndpoints {
     const val HUGGING_FACE = "https://router.huggingface.co/v1"
-    const val OPENROUTER = "https://openrouter.ai/api/v1"
-    const val GROQ = "https://api.groq.com/openai/v1"
-    const val XAI = "https://api.x.ai/v1"
 }
 
 object OpenAiCompatProvider {
@@ -263,26 +260,6 @@ object OpenAiCompatProvider {
     }
 }
 
-object XaiGrokProvider {
-    /** آدرس پایه — هم برای گفتگو، هم برای خواندن فهرست مدل‌های همین کلید. */
-    const val BASE_URL = ProviderEndpoints.XAI
-    private const val ENDPOINT = "$BASE_URL/chat/completions"
-
-    suspend fun chat(
-        apiKey: String,
-        apiModelId: String,
-        catalogId: String,
-        conversationHistory: List<ChatMessage>,
-        systemInstructionText: String
-    ): ApiResult<ChatApiResponse> = OpenAiCompatProvider.chat(
-        endpoint = ENDPOINT,
-        apiKey = apiKey,
-        apiModelId = apiModelId,
-        catalogId = catalogId,
-        conversationHistory = conversationHistory,
-        systemInstructionText = systemInstructionText
-    )
-}
 
 object HuggingFaceProvider {
     /**
@@ -309,48 +286,4 @@ object HuggingFaceProvider {
     )
 }
 
-object OpenRouterProvider {
-    /** آدرس پایه — هم برای گفتگو، هم برای خواندن فهرست مدل‌های همین کلید. */
-    const val BASE_URL = ProviderEndpoints.OPENROUTER
-    private const val ENDPOINT = "$BASE_URL/chat/completions"
 
-    suspend fun chat(
-        apiKey: String,
-        apiModelId: String,
-        catalogId: String,
-        conversationHistory: List<ChatMessage>,
-        systemInstructionText: String
-    ): ApiResult<ChatApiResponse> = OpenAiCompatProvider.chat(
-        endpoint = ENDPOINT,
-        apiKey = apiKey,
-        apiModelId = apiModelId,
-        catalogId = catalogId,
-        conversationHistory = conversationHistory,
-        systemInstructionText = systemInstructionText,
-        extraHeaders = mapOf(
-            "HTTP-Referer" to "https://foko.ai",
-            "X-Title" to "FOKO AI"
-        )
-    )
-}
-
-object GroqProvider {
-    /** آدرس پایه — هم برای گفتگو، هم برای خواندن فهرست مدل‌های همین کلید. */
-    const val BASE_URL = ProviderEndpoints.GROQ
-    private const val ENDPOINT = "$BASE_URL/chat/completions"
-
-    suspend fun chat(
-        apiKey: String,
-        apiModelId: String,
-        catalogId: String,
-        conversationHistory: List<ChatMessage>,
-        systemInstructionText: String
-    ): ApiResult<ChatApiResponse> = OpenAiCompatProvider.chat(
-        endpoint = ENDPOINT,
-        apiKey = apiKey,
-        apiModelId = apiModelId,
-        catalogId = catalogId,
-        conversationHistory = conversationHistory,
-        systemInstructionText = systemInstructionText
-    )
-}

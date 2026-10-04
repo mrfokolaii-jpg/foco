@@ -48,11 +48,8 @@ import com.example.data.model.AiProviderKind
 import com.example.data.model.CatalogModel
 import com.example.data.remote.ApiResult
 import com.example.data.remote.GeminiModels
-import com.example.data.remote.GroqProvider
 import com.example.data.remote.HuggingFaceProvider
 import com.example.data.remote.OpenAiCompatProvider
-import com.example.data.remote.OpenRouterProvider
-import com.example.data.remote.XaiGrokProvider
 import com.example.ui.theme.PersianTurquoise
 
 /** چقدر از هر سرویس نشان داده شود (کاربر ۴۰ تا ۵۰ مدل می‌خواست). */
@@ -79,6 +76,16 @@ fun ModelSelectorSheet(
     val context = LocalContext.current
     val store = remember { ApiKeyStore(context.applicationContext) }
     val snapshot = remember { store.snapshot() }
+    val offlineModel = remember {
+        if (snapshot.offlineConfigured) {
+            AiModelCatalog.offline(
+                displayName = store.getOfflineModelName().ifBlank { "مدل آفلاین" },
+                path = store.getOfflineModelPath()
+            )
+        } else {
+            null
+        }
+    }
 
     var loading by remember { mutableStateOf(true) }
     var live by remember { mutableStateOf<Map<AiProviderKind, List<CatalogModel>>>(emptyMap()) }
@@ -89,16 +96,6 @@ fun ModelSelectorSheet(
         val found = mutableMapOf<AiProviderKind, List<CatalogModel>>()
         val failed = mutableMapOf<AiProviderKind, String>()
 
-        suspend fun loadOpenAiCompat(provider: AiProviderKind, base: String, key: String) {
-            if (key.isBlank()) return
-            when (val result = OpenAiCompatProvider.listModelsDetailed(base, key)) {
-                is ApiResult.Success -> found[provider] = result.data
-                    .take(MODELS_PER_PROVIDER)
-                    .map { AiModelCatalog.live(provider, it) }
-                is ApiResult.Error -> failed[provider] = result.message
-            }
-        }
-
         if (snapshot.geminiConfigured) {
             when (val result = GeminiModels.listDetailed(store.getGeminiKey())) {
                 is ApiResult.Success -> found[AiProviderKind.GEMINI] = result.data
@@ -107,32 +104,29 @@ fun ModelSelectorSheet(
                 is ApiResult.Error -> failed[AiProviderKind.GEMINI] = result.message
             }
         }
-        loadOpenAiCompat(AiProviderKind.HUGGINGFACE, HuggingFaceProvider.BASE_URL, store.getHuggingFaceKey())
-        loadOpenAiCompat(AiProviderKind.OPENROUTER, OpenRouterProvider.BASE_URL, store.getOpenRouterKey())
-        loadOpenAiCompat(AiProviderKind.GROQ, GroqProvider.BASE_URL, store.getGroqKey())
-        loadOpenAiCompat(AiProviderKind.XAI_GROK, XaiGrokProvider.BASE_URL, store.getXaiGrokKey())
+        if (snapshot.huggingFaceConfigured) {
+            when (
+                val result = OpenAiCompatProvider.listModelsDetailed(
+                    HuggingFaceProvider.BASE_URL,
+                    store.getHuggingFaceKey()
+                )
+            ) {
+                is ApiResult.Success -> found[AiProviderKind.HUGGINGFACE] = result.data
+                    .take(MODELS_PER_PROVIDER)
+                    .map { AiModelCatalog.live(AiProviderKind.HUGGINGFACE, it) }
+                is ApiResult.Error -> failed[AiProviderKind.HUGGINGFACE] = result.message
+            }
+        }
 
         live = found
         errors = failed
         loading = false
     }
 
-    val customModels = remember { AiModelCatalog.customModels(store.getCustomProviders()) }
-    val nineRouterModel = remember {
-        if (snapshot.nineRouterConfigured) AiModelCatalog.nineRouter(store.getNineRouterModel()) else null
-    }
+    val onlineProviders = listOf(AiProviderKind.GEMINI, AiProviderKind.HUGGINGFACE)
+        .filter { snapshot.isConfigured(it) }
 
-    val configuredProviders = listOf(
-        AiProviderKind.GEMINI,
-        AiProviderKind.HUGGINGFACE,
-        AiProviderKind.OPENROUTER,
-        AiProviderKind.GROQ,
-        AiProviderKind.XAI_GROK
-    ).filter { snapshot.isConfigured(it) }
-
-    val nothingAtAll = configuredProviders.isEmpty() &&
-        customModels.isEmpty() &&
-        nineRouterModel == null
+    val nothingAtAll = onlineProviders.isEmpty() && offlineModel == null
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -168,8 +162,9 @@ fun ModelSelectorSheet(
                 }
             }
 
-            nineRouterModel?.let { model ->
-                SectionHeader("9Router", 1)
+            // ---- مدل آفلاین: همیشه اول، چون بدون اینترنت کار می‌کند ----------------
+            offlineModel?.let { model ->
+                SectionHeader("آفلاین (روی خود گوشی)", 1)
                 ModelOptionCard(
                     title = model.title,
                     tag = model.badge,
@@ -178,7 +173,7 @@ fun ModelSelectorSheet(
                 )
             }
 
-            configuredProviders.forEach { provider ->
+            onlineProviders.forEach { provider ->
                 val models = live[provider].orEmpty()
                 val error = errors[provider]
 
@@ -199,21 +194,9 @@ fun ModelSelectorSheet(
                 }
             }
 
-            if (customModels.isNotEmpty()) {
-                SectionHeader("سرویس‌های دستی تو", customModels.size)
-                customModels.forEach { model ->
-                    ModelOptionCard(
-                        title = model.title,
-                        tag = model.badge,
-                        isSelected = selectedModelId == model.id,
-                        onClick = { onSelect(model) }
-                    )
-                }
-            }
-
             if (nothingAtAll && !loading) {
                 Text(
-                    text = "هیچ سرویسی وصل نیست. کلید جمینای یا یک سرویس دستی اضافه کن.",
+                    text = "هیچ هوش مصنوعی‌ای وصل نیست. در تنظیمات کلید جمینای را بگذار یا یک مدل آفلاین اضافه کن.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
@@ -223,7 +206,7 @@ fun ModelSelectorSheet(
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
                 ) {
-                    Text("رفتن به تنظیمات و وارد کردن کلید", fontWeight = FontWeight.Bold)
+                    Text("رفتن به تنظیمات", fontWeight = FontWeight.Bold)
                 }
             }
 

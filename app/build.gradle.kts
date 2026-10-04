@@ -18,8 +18,8 @@ android {
     minSdk = 24
     targetSdk = 36
     // با هر نسخهٔ جدید این عدد را یکی زیاد کن تا اندروید نصب نسخهٔ بالاتر را بپذیرد.
-    versionCode = 3
-    versionName = "1.2"
+    versionCode = 4
+    versionName = "2.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -111,6 +111,11 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   implementation(libs.androidx.navigation.compose)
+  // خواندن پوشه‌های انتخابی کاربر برای پیدا کردن فایل مدل آفلاین
+  implementation("androidx.documentfile:documentfile:1.0.1")
+  // اجرای مدل هوش مصنوعی روی خود گوشی (llama.cpp) — بدون اینترنت و بدون کلید.
+  // نسخهٔ آمادهٔ Maven Central است؛ نیازی به NDK یا CMake نیست. فقط arm64-v8a.
+  implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)

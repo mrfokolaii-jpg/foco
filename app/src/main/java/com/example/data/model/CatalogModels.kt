@@ -1,23 +1,21 @@
 package com.example.data.model
 
+/**
+ * سرویس‌های هوش مصنوعیِ اپ.
+ *
+ * فقط سه چیز باقی مانده: کلید جمینای، کلید Hugging Face، و مدل آفلاین روی خود گوشی.
+ * بقیهٔ سرویس‌ها (Groq، OpenRouter، xAI، 9Router و کلیدهای دستی) کامل حذف شدند؛
+ * کلیدهایشان هم هنگام باز شدن اپ از حافظه پاک می‌شود.
+ */
 enum class AiProviderKind(val persianTitle: String, val badgeColorHex: Long) {
-    /**
-     * «هیچ سرویسی وصل نیست». پیش‌تر یک هوش مصنوعی داخلی و بی‌کلید این‌جا بود که
-     * حذف شد؛ حالا این حالت فقط یک پیام روشن به کاربر نشان می‌دهد و هیچ درخواستی
-     * به سرویس بیرونی نمی‌فرستد.
-     */
+    /** «هیچ سرویسی وصل نیست» — هیچ درخواستی به هیچ سرویسی فرستاده نمی‌شود. */
     NONE("بدون سرویس", 0xFF94A3B8),
-    HUGGINGFACE("Hugging Face", 0xFFFFD21E),
-    XAI_GROK("xAI Grok", 0xFF1E293B),
-    OPENROUTER("OpenRouter", 0xFF6366F1),
-    GROQ("Groq", 0xFFEA580C),
+
     GEMINI("Google Gemini", 0xFF2563EB),
+    HUGGINGFACE("Hugging Face", 0xFFFFD21E),
 
-    /** 9Router — self-hosted OpenAI-compatible router that rotates free models for us. */
-    NINE_ROUTER("9Router", 0xFF0EA5E9),
-
-    /** Anything the user wires up by hand: label + base URL + key + model. */
-    CUSTOM("کلید دستی", 0xFF8B5CF6)
+    /** مدلی که کاربر از حافظهٔ گوشی می‌آورد؛ روی خود گوشی اجرا می‌شود، بی‌اینترنت. */
+    OFFLINE("آفلاین", 0xFF10B981)
 }
 
 enum class ModelCapability {
@@ -39,29 +37,18 @@ data class CatalogModel(
 
 object AiModelCatalog {
     /**
-     * حالت «وصل نشده». هوش مصنوعی داخلی و بی‌کلیدِ فوکو کاملاً حذف شده است؛ این مدل
-     * هیچ‌جا در فهرست انتخاب مدل دیده نمی‌شود و فقط تا وقتی کاربر کلیدی وارد نکرده،
-     * جای مدل انتخابی را نگه می‌دارد تا یک پیام روشن نشان داده شود.
+     * حالت «وصل نشده». هیچ هوش مصنوعی داخلی و بی‌کلیدی وجود ندارد؛ این مدل در فهرست
+     * انتخاب مدل دیده نمی‌شود و فقط تا وقتی کاربر چیزی وصل نکرده، جای مدل انتخابی را
+     * نگه می‌دارد تا یک پیام روشن نشان داده شود.
      */
     val notConnected = CatalogModel(
         id = "not-connected",
         title = "هیچ سرویسی وصل نیست",
-        subtitle = "کلید جمینای یا یک سرویس دستی را در تنظیمات وارد کن",
+        subtitle = "کلید جمینای، کلید Hugging Face یا یک مدل آفلاین اضافه کن",
         provider = AiProviderKind.NONE,
         apiModelId = "",
         badge = "—",
         isRecommended = false
-    )
-
-    /** 9Router entry point. [modelId] is a 9Router model slug or a combo name. */
-    fun nineRouter(modelId: String): CatalogModel = CatalogModel(
-        id = "9router",
-        title = if (modelId.isBlank()) "9Router" else modelId,
-        subtitle = "مسیریاب خودکار: هر مدل به سقف خورد، مدل بعدی خودش فعال می‌شود",
-        provider = AiProviderKind.NINE_ROUTER,
-        apiModelId = modelId.ifBlank { "auto" },
-        badge = "9Router",
-        isRecommended = true
     )
 
     /** Prefix for a model fetched live from the provider with the user's own key. */
@@ -71,8 +58,7 @@ object AiModelCatalog {
      * مدلی که مستقیم از فهرست خودِ سرویس با کلید کاربر خوانده شده است.
      *
      * هیچ نامی حدس زده نمی‌شود: [apiModelId] عیناً همان چیزی است که سرور برگردانده،
-     * پس دیگر پیش نمی‌آید که اپ مدلی را صدا بزند که کلید کاربر به آن دسترسی ندارد
-     * (خطای «not supported by any provider you have enabled» از همین‌جا می‌آمد).
+     * پس دیگر پیش نمی‌آید که اپ مدلی را صدا بزند که کلید کاربر به آن دسترسی ندارد.
      */
     fun live(provider: AiProviderKind, modelId: String): CatalogModel = CatalogModel(
         id = LIVE_ID_PREFIX + provider.name + ":" + modelId,
@@ -83,6 +69,20 @@ object AiModelCatalog {
         badge = provider.persianTitle
     )
 
+    /** Prefix for a model that runs locally, straight from a file on the phone. */
+    const val OFFLINE_ID_PREFIX = "offline:"
+
+    /** مدل محلی. [displayName] نام فایل GGUF است و [path] مسیر واقعی همان فایل. */
+    fun offline(displayName: String, path: String): CatalogModel = CatalogModel(
+        id = OFFLINE_ID_PREFIX + path,
+        title = displayName,
+        subtitle = "روی همین گوشی اجرا می‌شود — بدون اینترنت",
+        provider = AiProviderKind.OFFLINE,
+        apiModelId = path,
+        badge = "آفلاین",
+        isRecommended = true
+    )
+
     /** Prefix for a Gemini model that came straight from the user's own key. */
     const val GEMINI_ID_PREFIX = "gemini:"
 
@@ -91,7 +91,7 @@ object AiModelCatalog {
      * is exactly the id Google returned for that key.
      *
      * [title] is only a prettier rendering of that same id (`gemini-3.5-flash-lite` shows as
-     * «3.5 Flash-Lite»)، و شناسهٔ خام هم در زیرنویس می‌آید تا معلوم باشد چه چیزی صدا زده می‌شود.
+     * «3.5 Flash Lite») و شناسهٔ خام در زیرنویس می‌آید.
      */
     fun gemini(modelId: String): CatalogModel = CatalogModel(
         id = GEMINI_ID_PREFIX + modelId,
@@ -138,134 +138,51 @@ object AiModelCatalog {
         return out.toString()
     }
 
-    /** Prefix that ties a catalog entry back to its hand-wired provider. */
-    const val CUSTOM_ID_PREFIX = "custom:"
-
-    /** User-defined OpenAI-compatible provider (site + key + model typed by hand). */
-    fun custom(provider: CustomProvider): CatalogModel = CatalogModel(
-        id = CUSTOM_ID_PREFIX + provider.id,
-        title = provider.label.ifBlank { "سرویس دستی" },
-        subtitle = provider.baseUrl.removePrefix("https://").removePrefix("http://").trimEnd('/'),
-        provider = AiProviderKind.CUSTOM,
-        apiModelId = provider.model,
-        badge = "دستی"
-    )
-
-    fun customProviderIdOf(catalogId: String): String = catalogId.removePrefix(CUSTOM_ID_PREFIX)
-
-    /** Every hand-wired provider the user enabled — all of them take part in the rotation. */
-    fun customModels(providers: List<CustomProvider>): List<CatalogModel> =
-        providers.filter { it.enabled && it.baseUrl.isNotBlank() && it.model.isNotBlank() }
-            .map { custom(it) }
+    // ---- مدل‌های پیش‌فرض (فقط به‌عنوان جایگزین وقتی فهرست زنده خوانده نشود) ----
 
     val hfQwen25 = CatalogModel(
         id = "hf-qwen25",
-        title = "کیوون ۷۲ میلیارد (Qwen 2.5)",
-        subtitle = "استدلال، مکالمه دقیق فارسی و کدنویسی عمیق",
+        title = "Qwen/Qwen2.5-72B-Instruct",
+        subtitle = "کیوون ۷۲ میلیارد",
         provider = AiProviderKind.HUGGINGFACE,
         apiModelId = "Qwen/Qwen2.5-72B-Instruct",
-        badge = "Hugging Face",
-        isRecommended = true
+        badge = "Hugging Face"
     )
 
     val hfQwenCoder = CatalogModel(
         id = "hf-qwencoder",
-        title = "کیوون کدنویسی (Qwen Coder 32B)",
-        subtitle = "توسعه، ساخت اسکریپت و تحلیل تخصصی برنامه نویسی",
+        title = "Qwen/Qwen2.5-Coder-32B-Instruct",
+        subtitle = "کیوون کدنویسی",
         provider = AiProviderKind.HUGGINGFACE,
         apiModelId = "Qwen/Qwen2.5-Coder-32B-Instruct",
         badge = "Hugging Face"
     )
 
-    val hfDeepseekR1 = CatalogModel(
-        id = "hf-deepseek-r1",
-        title = "دیپ‌سیک R1 استدلالی (DeepSeek R1)",
-        subtitle = "تفکر منطقی عمیق و حل مسائل ریاضی و تحلیلی",
-        provider = AiProviderKind.HUGGINGFACE,
-        apiModelId = "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
-        badge = "Hugging Face"
-    )
-
     val hfLlama31 = CatalogModel(
         id = "hf-llama31",
-        title = "لاما ۳.۱ هشت میلیارد (Llama 3.1 8B)",
-        subtitle = "پاسخ‌های روان و سریع برای چت روزمره",
+        title = "meta-llama/Llama-3.1-8B-Instruct",
+        subtitle = "لاما ۳.۱ هشت میلیارد",
         provider = AiProviderKind.HUGGINGFACE,
         apiModelId = "meta-llama/Llama-3.1-8B-Instruct",
         badge = "Hugging Face"
     )
 
-    val xaiGrok2 = CatalogModel(
-        id = "xai-grok2",
-        title = "گروک ۲ رسمی (Grok 2)",
-        subtitle = "جدیدترین مدل هوش مصنوعی رسمی xAI ایلان ماسک",
-        provider = AiProviderKind.XAI_GROK,
-        apiModelId = "grok-2-latest",
-        badge = "xAI Grok",
-        isRecommended = true
-    )
-
-    val xaiGrokBeta = CatalogModel(
-        id = "xai-grokbeta",
-        title = "گروک آزمایشی (Grok Beta)",
-        subtitle = "پاسخگویی سریع و طنزآمیز گروک با دسترسی مستقیم",
-        provider = AiProviderKind.XAI_GROK,
-        apiModelId = "grok-beta",
-        badge = "xAI Grok"
-    )
-
-    val orLlamaFree = CatalogModel(
-        id = "or-llama-free",
-        title = "لاما ۳.۳ رایگان (OpenRouter)",
-        subtitle = "مدل ۷۰ میلیارد رایگان از طریق OpenRouter",
-        provider = AiProviderKind.OPENROUTER,
-        apiModelId = "meta-llama/llama-3.3-70b-instruct:free",
-        badge = "OpenRouter"
-    )
-
-    val orDeepseekFree = CatalogModel(
-        id = "or-deepseek-free",
-        title = "دیپ‌سیک R1 رایگان (OpenRouter)",
-        subtitle = "استدلال هوشمند رایگان از طریق OpenRouter",
-        provider = AiProviderKind.OPENROUTER,
-        apiModelId = "deepseek/deepseek-r1:free",
-        badge = "OpenRouter"
-    )
-
-    val orQwenFree = CatalogModel(
-        id = "or-qwen-free",
-        title = "کیوون ۲.۵ رایگان (OpenRouter)",
-        subtitle = "مدل ۷۲ میلیارد رایگان از طریق OpenRouter",
-        provider = AiProviderKind.OPENROUTER,
-        apiModelId = "qwen/qwen-2.5-72b-instruct:free",
-        badge = "OpenRouter"
-    )
-
-    val groqLlama33 = CatalogModel(
-        id = "groq-llama33",
-        title = "لاما ۳.۳ سریع (Groq)",
-        subtitle = "پاسخ فوری و فوق سریع بر بستر زیرساخت LPU",
-        provider = AiProviderKind.GROQ,
-        apiModelId = "llama-3.3-70b-versatile",
-        badge = "Groq"
-    )
-
     val geminiFlash = CatalogModel(
         id = "gemini-flash",
-        title = "جمینای ۲.۰ فلش (Google Gemini)",
-        subtitle = "جدیدترین نسل هوش مصنوعی چندرسانه‌ای گوگل",
+        title = "جمینای فلش",
+        subtitle = "gemini-flash",
         provider = AiProviderKind.GEMINI,
-        apiModelId = "gemini-2.0-flash",
+        apiModelId = "gemini-flash",
         badge = "Gemini",
         capability = ModelCapability.VISION
     )
 
     val geminiPro = CatalogModel(
         id = "gemini-pro",
-        title = "جمینای ۱.۵ پرو (تفکر عمیق گوگل)",
-        subtitle = "درک زمینه‌های طولانی، منطق پیشرفته و برنامه‌نویسی",
+        title = "جمینای پرو",
+        subtitle = "gemini-pro",
         provider = AiProviderKind.GEMINI,
-        apiModelId = "gemini-1.5-pro",
+        apiModelId = "gemini-pro",
         badge = "Gemini",
         capability = ModelCapability.VISION
     )
@@ -274,14 +191,7 @@ object AiModelCatalog {
     val all: List<CatalogModel> = listOf(
         hfQwen25,
         hfQwenCoder,
-        hfDeepseekR1,
         hfLlama31,
-        xaiGrok2,
-        xaiGrokBeta,
-        orLlamaFree,
-        orDeepseekFree,
-        orQwenFree,
-        groqLlama33,
         geminiFlash,
         geminiPro
     )
