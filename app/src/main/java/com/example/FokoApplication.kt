@@ -4,6 +4,7 @@ import android.app.Application
 import com.example.data.local.CrashReporter
 import com.example.data.offline.KnowledgeBase
 import com.example.data.offline.OfflineEngine
+import com.example.data.offline.OfflineSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +31,10 @@ class FokoApplication : Application() {
 
         // ۲) در اختیار گذاشتن تنظیمات و دانش به موتور آفلاین.
         OfflineEngine.attach(this)
+
+        // ۲.۵) نصب‌های قبلی پنجرهٔ متنِ تنگ (۲۰۴۸) داشتند که باعث بسته شدن اپ
+        //      هنگام پاسخ‌دادن می‌شد؛ یک‌بار بزرگش می‌کنیم.
+        runCatching { OfflineSettings.migrate(this) }
 
         // ۳) نصب پایگاه دانشِ همراهِ اپ. کاربر روی گوشی نمی‌توانست فایل ZIP را دانلود
         //    کند؛ حالا اسناد از پیش داخل برنامه هستند و هیچ دانلودی لازم نیست.

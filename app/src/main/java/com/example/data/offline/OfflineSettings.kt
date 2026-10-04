@@ -27,10 +27,13 @@ data class OfflineTuning(
     val knowledgeEnabled: Boolean = true
 ) {
     companion object {
-        const val DEFAULT_CONTEXT = 2048
+        // ۲۰۴۸ برای این مدل‌ها تنگ است: راهنمای اپ + پایگاه دانش + گفتگو به‌سرعت
+        // از آن رد می‌شد و موتور مجبور می‌شد برنامه را ببندد. روی گوشی ۱۲ گیگابایتی
+        // ۴۰۹۶ هیچ هزینهٔ محسوسی ندارد.
+        const val DEFAULT_CONTEXT = 4096
         const val DEFAULT_MAX_TOKENS = 320
 
-        val CONTEXT_CHOICES = listOf(512, 1024, 2048, 4096)
+        val CONTEXT_CHOICES = listOf(1024, 2048, 4096, 6144, 8192)
         val MAX_TOKEN_CHOICES = listOf(128, 192, 320, 512, 768)
         val THREAD_CHOICES = listOf(2, 3, 4, 5, 6, 8)
     }
@@ -47,6 +50,7 @@ object OfflineSettings {
     private const val KEY_TOPK = "top_k"
     private const val KEY_GPU = "gpu_enabled"
     private const val KEY_KB = "knowledge_enabled"
+    private const val KEY_MIGRATED_CTX = "migrated_context_v2"
 
     private fun prefs(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -69,6 +73,21 @@ object OfflineSettings {
 
     /** اندازه‌های پیشنهادی بر اساس رم واقعی گوشی (نه یک عدد ثابت). */
     fun recommendedContext(): Int = OfflineTuning.DEFAULT_CONTEXT
+
+    /**
+     * یک‌بار برای همیشه، پنجرهٔ متنِ نصب‌های قبلی را بزرگ می‌کند.
+     *
+     * پیش‌تر مقدار پیش‌فرض ۲۰۴۸ بود و همان عدد در حافظهٔ گوشی ذخیره شده است؛
+     * همان مقدارِ تنگ باعث می‌شد موتور آفلاین هنگام پاسخ‌دادن برنامه را ببندد.
+     */
+    fun migrate(context: Context) {
+        val p = prefs(context)
+        if (p.getBoolean(KEY_MIGRATED_CTX, false)) return
+        if (p.getInt(KEY_CONTEXT, DEFAULT_CONTEXT) < DEFAULT_CONTEXT) {
+            p.edit().putInt(KEY_CONTEXT, DEFAULT_CONTEXT).apply()
+        }
+        p.edit().putBoolean(KEY_MIGRATED_CTX, true).apply()
+    }
 
     fun load(context: Context): OfflineTuning {
         val p = prefs(context)

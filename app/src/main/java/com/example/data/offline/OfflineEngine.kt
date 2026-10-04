@@ -192,22 +192,45 @@ object OfflineEngine {
 
         // دانش محلی: فقط بخش مربوط به همین سؤال به مدل داده می‌شود تا پنجرهٔ کوچک
         // مدل با متن بی‌ربط پر نشود.
+        // دانش محلی بر اساس بودجهٔ توکن درخواست می‌شود، نه با یک عدد ثابت؛ وگرنه روی
+        // پنجرهٔ کوچک، دانش جای سؤال کاربر را می‌گیرد و مدل را می‌بندد.
         val knowledge = if (tuning.knowledgeEnabled) {
-            appContext?.let { KnowledgeBase.contextFor(it, question) }.orEmpty()
+            val share = TokenBudget(tuning.contextSize, tuning.maxTokens)
+            val maxChars = ((share.forInput * KNOWLEDGE_SHARE) / 100 * CHARS_PER_TOKEN).toInt()
+            appContext?.let { KnowledgeBase.contextFor(it, question, maxChars) }.orEmpty()
         } else {
             ""
         }
 
+        // ---- بودجهٔ توکن: مهم‌ترین بخش این تابع ----
+        // اگر مجموع متنِ فرستاده‌شده از پنجرهٔ مدل بزرگ‌تر شود، llama.cpp خودش را
+        // می‌بندد (abort داخل llama_context::decode) و کل برنامه بسته می‌شود.
+        // این خطای بومی را هیچ try/catch نمی‌گیرد، پس باید از قبل جلویش را گرفت.
+        val budget = TokenBudget(tuning.contextSize, tuning.maxTokens)
+
         val systemPrompt = buildString {
-            append(systemInstructionText)
+            append(
+                truncateToTokens(
+                    compactSystemPrompt(systemInstructionText),
+                    (budget.forInput * SYSTEM_SHARE) / 100
+                )
+            )
             append("\nفقط جواب نهایی را بنویس، کوتاه و مستقیم و به زبان فارسی.")
             if (knowledge.isNotBlank()) {
                 append("\n\nاگر در «اطلاعات پایگاه دانش» مطلبی مربوط به سؤال بود، از همان استفاده کن:\n")
-                append(knowledge)
+                append(
+                    truncateToTokens(
+                        knowledge,
+                        (budget.forInput * KNOWLEDGE_SHARE) / 100
+                    )
+                )
             }
         }
 
-        val prompt = buildPrompt(conversationHistory)
+        val prompt = buildPrompt(
+            history = conversationHistory,
+            tokenBudget = budget.forInput - estimateTokens(systemPrompt) - 24
+        )
 
         try {
             val result = Llama.complete(
@@ -271,25 +294,98 @@ object OfflineEngine {
     }
 
     /**
+     * بودجهٔ توکن: چه چیزی جا می‌شود و چه چیزی نه.
+     *
+     * llama.cpp وقتی متن از پنجرهٔ مدل بزرگ‌تر شود، خودش را با `abort` می‌بندد؛
+     * این خطای بومی (native) با try/catch گرفته نمی‌شود و کل برنامه را می‌کشد.
+     * پس پیش از فرستادن، خودمان متن را در بودجه جا می‌دهیم.
+     */
+    private class TokenBudget(contextSize: Int, maxTokens: Int) {
+        /** سهم پاسخ؛ هیچ‌وقت بیشتر از یک‌سوم پنجره، تا متن ورودی جا بماند. */
+        val forOutput: Int = maxTokens.coerceIn(64, (contextSize / 3).coerceAtLeast(64))
+
+        /** سهم ورودی، با یک حاشیهٔ امن برای اختلاف توکنایزرها. */
+        val forInput: Int = (contextSize - forOutput - HEADROOM_TOKENS).coerceAtLeast(128)
+    }
+
+    /**
+     * راهنمای شخصیت را از فهرست ابزارها جدا می‌کند.
+     *
+     * راهنمای اپ فهرست بلندی از ابزارها (گیت‌هاب، اجرای برنامه، خواندن صفحه و…) دارد
+     * که چند صد توکن از پنجرهٔ مدل را می‌خورد. مدل ۱.۵ میلیاردی توانایی صدا زدن درست
+     * آن ابزارها را ندارد و اگر اشتباهی تگی تولید کند، ممکن است کار ناخواسته‌ای انجام
+     * شود. پس فقط شخصیت و قوانین می‌مانند و توکن‌های آزادشده به سؤال کاربر و پایگاه
+     * دانش می‌رسند.
+     */
+    private fun compactSystemPrompt(text: String): String {
+        val marker = "ابزارهای در دسترس تو:"
+        val cut = text.indexOf(marker)
+        if (cut <= 0) return text
+        return text.substring(0, cut).trim() +
+            "\n(ابزارها روی مدل آفلاین غیرفعال هستند؛ با دانش خودت جواب بده.)"
+    }
+
+    /** تخمین محافظه‌کارانهٔ تعداد توکن از روی طول متن (فارسی معمولاً گران‌تر است). */
+    private fun estimateTokens(text: String): Int =
+        (text.length / CHARS_PER_TOKEN).toInt() + 12
+
+    /** متن را به اندازهٔ بودجهٔ توکنی کوتاه می‌کند. */
+    private fun truncateToTokens(text: String, tokenBudget: Int): String {
+        if (tokenBudget <= 0) return ""
+        val maxChars = (tokenBudget * CHARS_PER_TOKEN).toInt()
+        if (text.length <= maxChars) return text
+        return text.take(maxChars).trimEnd() + "…"
+    }
+
+    /**
      * چند پیام آخر به یک متن تبدیل می‌شود؛ خودِ کتابخانه قالب چت مدل را اعمال می‌کند.
      *
-     * طول گفتگوی قبلی محدود می‌شود چون مدل آفلاین پنجرهٔ کوچکی دارد و اگر متن قبلی
-     * زیاد شود، جایی برای جواب نمی‌ماند.
+     * پیام‌ها از **آخر به اول** اضافه می‌شوند تا وقتی بودجه تمام شد، قدیمی‌ترین‌ها
+     * حذف شوند و پیام تازهٔ کاربر همیشه بماند. پیش‌تر فقط «۶ پیام آخر» گرفته می‌شد
+     * و هیچ سقفی برای طول کل وجود نداشت — همان چیزی که باعث بسته شدن برنامه می‌شد.
      */
-    private fun buildPrompt(history: List<ChatMessage>): String {
-        val turns = history.filter { it.text.isNotBlank() }.takeLast(6)
+    private fun buildPrompt(history: List<ChatMessage>, tokenBudget: Int): String {
+        val turns = history.filter { it.text.isNotBlank() }.takeLast(8)
         if (turns.isEmpty()) return ""
-        if (turns.size == 1) return turns.last().text
+
+        val last = turns.last()
+        val budget = tokenBudget.coerceAtLeast(64)
+
+        // پیام تازهٔ کاربر همیشه می‌ماند (اگر لازم شد، کوتاه می‌شود).
+        val lastText = truncateToTokens(last.text, budget)
+        var remaining = budget - estimateTokens(lastText) - 8
+
+        val earlier = mutableListOf<String>()
+        turns.dropLast(1).asReversed().forEach { message ->
+            if (remaining < 48) return@forEach
+            val line = (if (message.sender == MessageSender.USER) "کاربر" else "دستیار") +
+                ": " + message.text.replace('\n', ' ')
+            val trimmed = truncateToTokens(line, remaining.coerceAtMost(220))
+            earlier.add(0, trimmed)
+            remaining -= estimateTokens(trimmed)
+        }
+
+        if (earlier.isEmpty()) return lastText
         return buildString {
             append("گفتگوی قبلی:\n")
-            turns.dropLast(1).forEach { message ->
-                append(if (message.sender == MessageSender.USER) "کاربر" else "دستیار")
-                append(": ")
-                append(message.text.take(300))
-                append("\n")
-            }
+            earlier.forEach { append(it).append('\n') }
             append("\nپیام جدید کاربر: ")
-            append(turns.last().text)
+            append(lastText)
         }
     }
+
+    /**
+     * هر توکن به‌طور محافظه‌کارانه معادل [CHARS_PER_TOKEN] حرف حساب می‌شود.
+     * کمتر گرفتن این عدد یعنی متن کوتاه‌تر می‌فرستیم و احتمال بسته شدن اپ کمتر می‌شود.
+     */
+    private const val CHARS_PER_TOKEN = 1.6
+
+    /** حاشیهٔ امن برای اختلاف توکنایزر مدل‌های مختلف. */
+    private const val HEADROOM_TOKENS = 96
+
+    /** حداکثر سهم متن راهنما (شخصیت و قوانین) از ورودی. */
+    private const val SYSTEM_SHARE = 40
+
+    /** حداکثر سهم پایگاه دانش از ورودی. */
+    private const val KNOWLEDGE_SHARE = 35
 }
