@@ -33,8 +33,26 @@ jobs:
       - name: Install Vulkan build tools (glslc + headers) and ninja
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends glslc libvulkan-dev ninja-build
+          # بسته‌های اصلی؛ اگر نامی در این نسخهٔ اوبونتو نبود، ساخت متوقف نشود.
+          sudo apt-get install -y --no-install-recommends glslc libvulkan-dev ninja-build || true
+          sudo apt-get install -y --no-install-recommends spirv-headers glslang-tools spirv-tools || true
           glslc --version | head -2
+
+      - name: Install SPIRV-Headers (needed by the Vulkan backend)
+        run: |
+          # llama.cpp's Vulkan backend does find_package(SPIRV-Headers). The apt package
+          # name varies, so build it from source — small and reliable.
+          if [ -f /usr/lib/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake ] || \
+             [ -f /usr/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake ]; then
+            echo "SPIRV-Headers already present"
+          else
+            git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers
+            cmake -S /tmp/spirv-headers -B /tmp/spirv-headers/build \
+              -DCMAKE_INSTALL_PREFIX="$HOME/spirv" -DSPIRV_HEADERS_SKIP_EXAMPLES=ON
+            cmake --install /tmp/spirv-headers/build
+          fi
+          echo "CMAKE_PREFIX_PATH_EXTRA=$HOME/spirv" >> "$GITHUB_ENV"
+          find "$HOME/spirv" -name "SPIRV-HeadersConfig.cmake" 2>/dev/null || true
 
       - name: Pick an NDK
         run: |
@@ -67,7 +85,13 @@ jobs:
 
       - name: Configure (arm64-v8a, Vulkan ON)
         run: |
+          EXTRA=""
+          if [ -n "${CMAKE_PREFIX_PATH_EXTRA:-}" ]; then
+            EXTRA="-DCMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH_EXTRA"
+            echo "using extra prefix: $CMAKE_PREFIX_PATH_EXTRA"
+          fi
           cmake -S engine/library/src/main/jni -B vbuild -G Ninja \
+            $EXTRA \
             -DCMAKE_TOOLCHAIN_FILE="$NDK_DIR/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-24 \
@@ -85,7 +109,7 @@ jobs:
             -DLLAMA_BUILD_COMMON=OFF
 
       - name: Build engine (this takes a while)
-        run: cmake --build vbuild --target llama_jni -j 4
+        run: cmake --build vbuild --target llama_jni -j "$(nproc)"
 
       - name: Collect .so files
         run: |
