@@ -79,12 +79,16 @@ jobs:
           cat /usr/lib/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake
           echo "VULKAN_SDK=/usr" >> "$GITHUB_ENV"
 
-          # بستهٔ اوبونتو فایل C++ یعنی vulkan.hpp را ندارد. از مخزن رسمی می‌گیریم.
-          if [ -z "$(find /usr/include /usr/local/include -name vulkan.hpp 2>/dev/null | head -1)" ]; then
+          # فایل C++ یعنی vulkan.hpp هرجای سیستم باشد، مسیر همان را می‌دهیم به کامپایلر؛
+          # اگر نبود، از مخزن رسمی می‌گیریم.
+          VKH=$(find /usr /opt -name vulkan.hpp -path '*vulkan*' 2>/dev/null | head -1)
+          if [ -z "$VKH" ]; then
             git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vkheaders
+            VKH=/tmp/vkheaders/include/vulkan/vulkan.hpp
           fi
-          echo "VULKAN_CPP_INCLUDE=/tmp/vkheaders/include" >> "$GITHUB_ENV"
-          ls /tmp/vkheaders/include/vulkan/vulkan.hpp
+          echo "using vulkan.hpp: $VKH"
+          test -f "$VKH"
+          echo "VULKAN_CPP_INCLUDE=$(dirname "$(dirname "$VKH")")" >> "$GITHUB_ENV"
 
       - name: Pick an NDK
         run: |
