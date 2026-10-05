@@ -5,7 +5,14 @@ name: Vulkan engine build
 # چرا کارگاه جداگانه: کتابخانهٔ آمادهٔ Maven فقط CPU است و خودِ سازنده، مدل GPU را
 # به‌صورت نسخهٔ پولی می‌فروشد. ولی کد کتابخانه MIT است و روشن‌کردن GPU فقط یک پرچم
 # ساخت است (GGML_VULKAN). پس خودمان با همان پرچم روشن می‌سازیم.
+# نکته: workflow_dispatch برای یک فایل تازه فقط وقتی کار می‌کند که همان فایل روی
+# شاخهٔ اصلی باشد. پس این کارگاه با هر تغییر خودش اجرا می‌شود.
 on:
+  push:
+    branches:
+      - fix/chat-ui-permissions
+    paths:
+      - '.github/workflows/vulkan-engine.yml'
   workflow_dispatch:
 
 jobs:
