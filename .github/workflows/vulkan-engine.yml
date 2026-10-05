@@ -79,16 +79,12 @@ jobs:
           cat /usr/lib/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake
           echo "VULKAN_SDK=/usr" >> "$GITHUB_ENV"
 
-          # فایل C++ یعنی vulkan.hpp هرجای سیستم باشد، مسیر همان را می‌دهیم به کامپایلر؛
-          # اگر نبود، از مخزن رسمی می‌گیریم.
-          VKH=$(find /usr /opt -name vulkan.hpp -path '*vulkan*' 2>/dev/null | head -1)
-          if [ -z "$VKH" ]; then
+          # هدرهای C++ (vulkan.hpp) را این‌جا آماده می‌کنیم؛ در گام بعد داخل خودِ NDK
+          # کپی می‌شوند (نه در مسیر شامل‌های میزبان).
+          if [ -z "$(find /usr /opt /tmp -name vulkan.hpp -path '*vulkan*' 2>/dev/null | head -1)" ]; then
             git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vkheaders
-            VKH=/tmp/vkheaders/include/vulkan/vulkan.hpp
           fi
-          echo "using vulkan.hpp: $VKH"
-          test -f "$VKH"
-          echo "VULKAN_CPP_INCLUDE=$(dirname "$(dirname "$VKH")")" >> "$GITHUB_ENV"
+          echo "vulkan.hpp ready"
 
       - name: Pick an NDK
         run: |
@@ -104,6 +100,22 @@ jobs:
           fi
           echo "NDK_DIR=$NDK" >> "$GITHUB_ENV"
           test -d "$NDK" && echo "using NDK: $NDK"
+
+      - name: Stage Vulkan C++ headers into the NDK sysroot
+        run: |
+          # در کراس‌کامپایل نباید مسیر شامل‌های میزبان (glibc) به کامپایلر داده شود؛
+          # وگرنه خطای bits/wordsize.h می‌دهد. پس فقط هدرهای Vulkan را داخل خودِ NDK می‌گذاریم.
+          SRC=$(find /usr /opt /tmp -name vulkan.hpp -path '*vulkan*' 2>/dev/null | head -1)
+          if [ -z "$SRC" ]; then
+            git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vkheaders
+            SRC=/tmp/vkheaders/include/vulkan/vulkan.hpp
+          fi
+          echo "vulkan.hpp source: $SRC"
+          DEST="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/vulkan"
+          sudo mkdir -p "$DEST"
+          sudo cp "$(dirname "$SRC")"/*.h* "$DEST"/ || true
+          echo "--- staged ---"
+          ls "$DEST" | head
 
       - name: Clone engine source (llama-android + llama.cpp)
         run: |
@@ -125,7 +137,6 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$NDK_DIR/build/cmake/android.toolchain.cmake" \
             -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
             -DSPIRV-Headers_DIR=/usr/lib/cmake/SPIRV-Headers \
-            -DCMAKE_CXX_FLAGS="-I$VULKAN_CPP_INCLUDE" \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-24 \
             -DANDROID_STL=c++_shared \
