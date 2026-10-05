@@ -83,8 +83,9 @@ object OfflineSettings {
     fun migrate(context: Context) {
         val p = prefs(context)
         if (p.getBoolean(KEY_MIGRATED_CTX, false)) return
-        if (p.getInt(KEY_CONTEXT, DEFAULT_CONTEXT) < DEFAULT_CONTEXT) {
-            p.edit().putInt(KEY_CONTEXT, DEFAULT_CONTEXT).apply()
+        val target = OfflineTuning.DEFAULT_CONTEXT
+        if (p.getInt(KEY_CONTEXT, target) < target) {
+            p.edit().putInt(KEY_CONTEXT, target).apply()
         }
         p.edit().putBoolean(KEY_MIGRATED_CTX, true).apply()
     }
