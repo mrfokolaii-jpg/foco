@@ -123,14 +123,18 @@ jobs:
 
       - name: Diagnose NDK Vulkan stubs
         run: |
+          set +e
           SYS="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android"
           echo "--- api dirs present ---"
-          ls "$SYS" | grep -E '^[0-9]+$' | sort -n | tr '\n' ' '; echo
+          ls "$SYS" | grep -E '^[0-9]+$' | sort -n | tr '\n' ' '
+          echo
           for f in "$SYS"/*/libvulkan.so "$SYS"/libvulkan.so; do
-            [ -f "$f" ] || continue
-            n=$(readelf -sW "$f" 2>/dev/null | grep -c "vkGetPhysicalDeviceFeatures2")
-            echo "  $f -> exports vkGetPhysicalDeviceFeatures2 x$n"
+            if [ -f "$f" ]; then
+              echo "  found: $f"
+              readelf -sW "$f" 2>/dev/null | grep -c "vkGetPhysicalDeviceFeatures2" || echo "     (0 matches)"
+            fi
           done
+          exit 0
 
       - name: Clone engine source (llama-android + llama.cpp)
         run: |
