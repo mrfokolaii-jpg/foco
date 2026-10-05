@@ -155,17 +155,18 @@ fun OfflineTuningCard() {
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "موتور فعلی فقط CPU است. خودِ کتابخانه اعلام کرده که " +
-                            "اجرای مدل روی GPU فقط در نسخهٔ Pro فعال می‌شود، پس این کلید " +
-                            "در این نسخه کار نمی‌کند و خاموش است.",
+                        text = "از نسخهٔ ۲.۵ موتور Vulkan داخل اپ ساخته شده است. با روشن " +
+                            "بودن این کلید، همهٔ لایه‌های مدل روی GPU می‌روند و پاسخ‌ها " +
+                            "چند برابر سریع‌تر می‌شوند. اگر گوشی Vulkan نداشته باشد، " +
+                            "خودکار روی CPU ادامه می‌دهد.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Switch(
-                    checked = false,
-                    onCheckedChange = null,
-                    enabled = false,
+                    checked = tuning.gpuEnabled,
+                    onCheckedChange = { update(tuning.copy(gpuEnabled = it)) },
+                    enabled = true,
                     colors = SwitchDefaults.colors(checkedTrackColor = PersianTurquoise)
                 )
             }

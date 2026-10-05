@@ -72,14 +72,17 @@ object OfflineEngine {
     fun isDeviceSupported(): Boolean =
         Build.SUPPORTED_ABIS.any { it.equals("arm64-v8a", ignoreCase = true) }
 
+    /** حداکثر لایه‌های مدل که روی GPU فرستاده می‌شود؛ ۹۹ یعنی «همهٔ لایه‌ها». */
+    const val GPU_ALL_LAYERS = 99
+
     /**
      * آیا موتور GPU دارد؟
      *
-     * موتور فعلی (نسخهٔ رایگان) فقط CPU است — خودِ کتابخانه هم در توضیح
-     * `gpuLayers` نوشته که Vulkan فقط در نسخهٔ Pro فعال است. پس این مقدار همیشه
-     * false است و در تنظیمات هم صادقانه همین گفته می‌شود.
+     * از نسخهٔ ۲.۵ کتابخانهٔ بومی با پشتیبانی Vulkan (libggml-vulkan.so) داخل اپ
+     * ساخته می‌شود، پس GPU در دسترس است. اگر گوشی Vulkan نداشته باشد، بارگذاری
+     * مدل خودش روی CPU ادامه پیدا می‌کند (پایین‌تر، در ensureLoaded).
      */
-    fun isGpuAvailable(): Boolean = false
+    fun isGpuAvailable(): Boolean = true
 
     fun isLoaded(): Boolean = loaded?.isLoaded == true
 
@@ -87,19 +90,22 @@ object OfflineEngine {
 
     fun systemInfo(): String = runCatching { Llama.getSystemInfo() }.getOrDefault("")
 
-    private fun configFor(tuning: OfflineTuning): LlamaConfig = LlamaConfig(
+    private fun configFor(tuning: OfflineTuning, gpuLayers: Int = gpuLayersFor(tuning)): LlamaConfig = LlamaConfig(
         contextSize = tuning.contextSize,
         threads = tuning.threads,
-        // طبق مستندات خود کتابخانه، مقدار بزرگ‌تر از صفر فقط در نسخهٔ Pro معنا دارد.
-        gpuLayers = 0,
+        // صفر = فقط CPU، هر عدد مثبت = همان تعداد لایه روی GPU. ۹۹ یعنی همهٔ لایه‌ها.
+        gpuLayers = gpuLayers,
         temperature = tuning.temperature,
         topP = tuning.topP,
         topK = tuning.topK,
         seed = -1
     )
 
+    private fun gpuLayersFor(tuning: OfflineTuning): Int =
+        if (tuning.gpuEnabled) GPU_ALL_LAYERS else 0
+
     private fun signatureOf(path: String, tuning: OfflineTuning): String =
-        "$path|ctx=${tuning.contextSize}|th=${tuning.threads}|t=${tuning.temperature}|p=${tuning.topP}|k=${tuning.topK}"
+        "$path|ctx=${tuning.contextSize}|th=${tuning.threads}|t=${tuning.temperature}|p=${tuning.topP}|k=${tuning.topK}|gpu=${gpuLayersFor(tuning)}"
 
     suspend fun loadModel(path: String): ApiResult<String> = lock.withLock { ensureLoaded(path) }
 
@@ -136,13 +142,28 @@ object OfflineEngine {
         loadedSignature = ""
 
         return try {
-            val model = Llama.loadModel(modelPath = path, config = configFor(tuning))
+            val wantsGpu = tuning.gpuEnabled
+            var usedCpuFallback = false
+            val model = try {
+                Llama.loadModel(modelPath = path, config = configFor(tuning))
+            } catch (gpuError: Throwable) {
+                // گوشی Vulkan ندارد یا حافظهٔ GPU بس نیست. یک بار روی CPU امتحان می‌کنیم
+                // تا کاربر به‌جای پیام خطا، مدل را داشته باشد.
+                if (!wantsGpu) throw gpuError
+                usedCpuFallback = true
+                Llama.loadModel(modelPath = path, config = configFor(tuning, gpuLayers = 0))
+            }
             loaded = model
             loadedPath = path
-            loadedSignature = signature
+            loadedSignature = if (usedCpuFallback) "$signature|cpu-fallback" else signature
             lastError = ""
+            val where = when {
+                wantsGpu && !usedCpuFallback -> "GPU (Vulkan)"
+                wantsGpu && usedCpuFallback -> "CPU — GPU در دسترس نبود"
+                else -> "CPU"
+            }
             ApiResult.Success(
-                "مدل بارگذاری شد — ${tuning.threads} رشته، پنجرهٔ ${tuning.contextSize} توکن"
+                "مدل بارگذاری شد — $where، ${tuning.threads} رشته، پنجرهٔ ${tuning.contextSize} توکن"
             )
         } catch (error: Throwable) {
             lastError = error.message ?: error.toString()

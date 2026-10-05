@@ -6,14 +6,69 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # برای ساختن Release و گذاشتن فایل APK
+  actions: read     # برای برداشتن کتابخانه‌های GPU از بیلد موتور Vulkan
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # کتابخانه‌های بومی (llama.cpp) از بیلد GPU می‌آیند، نه از AAR.
+      # AAR عمداً بدون پوشهٔ jni کامیت شده است؛ پس اینجا فایل‌های .so را
+      # از آخرین بیلد موفق «Vulkan engine build» برمی‌داریم.
+      # ------------------------------------------------------------------
+      - name: Fetch the GPU (Vulkan) engine libraries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          AID=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/actions/artifacts?name=vulkan-engine-libs&per_page=30" \
+            | python3 -c "import sys,json; a=json.load(sys.stdin)['artifacts']; a=[x for x in a if not x['expired']]; print(max(a,key=lambda x:x['created_at'])['id'])")
+          echo "engine artifact id: $AID"
+          curl -sSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/actions/artifacts/$AID/zip" -o /tmp/engine.zip
+          ls -l /tmp/engine.zip
+
+          DEST=app/src/main/jniLibs/arm64-v8a
+          mkdir -p "$DEST"
+          unzip -o -j /tmp/engine.zip -d "$DEST"
+          for f in libggml.so libggml-base.so libggml-cpu.so libggml-vulkan.so libllama.so libllama_jni.so; do
+            test -f "$DEST/$f" || { echo "::error::$f missing from the engine artifact"; exit 1; }
+          done
+
+          # libc++_shared.so: همان NDK ای که موتور را ساخته. اگر رانِر نداشت،
+          # از خود AAR قبلی (فقط برای همین یک فایل) برمی‌داریم.
+          NDKCPP=$(find "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so 2>/dev/null | sort -V | tail -1)
+          if [ -n "$NDKCPP" ]; then
+            echo "libc++_shared.so from NDK: $NDKCPP"
+            cp "$NDKCPP" "$DEST/"
+          else
+            echo "NDK not found on the runner; taking libc++_shared.so from the Maven AAR"
+            curl -sSL -o /tmp/orig.aar \
+              "https://repo1.maven.org/maven2/dev/ffmpegkit-maintained/llama-android/0.1.1/llama-android-0.1.1.aar"
+            python3 - <<'PY'
+import zipfile
+z = zipfile.ZipFile('/tmp/orig.aar')
+open('app/src/main/jniLibs/arm64-v8a/libc++_shared.so', 'wb').write(
+    z.read('jni/arm64-v8a/libc++_shared.so'))
+print('extracted libc++_shared.so from the AAR')
+PY
+          fi
+
+          # حذف اطلاعات دیباگ تا حجم APK کمتر شود (سمبل‌های صادرشده دست نمی‌خورند).
+          STRIP=$(find "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"/ndk/*/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip 2>/dev/null | sort -V | tail -1)
+          if [ -n "$STRIP" ]; then
+            for f in "$DEST"/*.so; do "$STRIP" --strip-debug "$f" || true; done
+          fi
+
+          echo "--- native libs that will go into the APK ---"
+          ls -l "$DEST"
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -43,3 +98,24 @@ jobs:
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish the APK as a release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/debug/*.apk | head -1)
+          cp "$APK" FOKO-AI-v2.5.apk
+          ls -l FOKO-AI-v2.5.apk
+          TAG="v2.5"
+          NOTES="FOKO AI v2.5 — اجرای مدل روی GPU (Vulkan). همهٔ لایه‌ها روی GPU می‌روند؛ اگر گوشی Vulkan نداشته باشد خودکار روی CPU ادامه می‌دهد."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" FOKO-AI-v2.5.apk --clobber
+          else
+            gh release create "$TAG" FOKO-AI-v2.5.apk \
+              --title "FOKO AI v2.5 — GPU (Vulkan)" \
+              --notes "$NOTES" \
+              --target "$GITHUB_SHA"
+          fi
+          echo "download: https://github.com/${{ github.repository }}/releases/download/$TAG/FOKO-AI-v2.5.apk"

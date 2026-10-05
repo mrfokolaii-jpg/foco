@@ -21,8 +21,8 @@ data class OfflineTuning(
     val temperature: Float = 0.7f,
     val topP: Float = 0.9f,
     val topK: Int = 40,
-    /** اگر روزی موتور Vulkan اضافه شد، از GPU استفاده شود. */
-    val gpuEnabled: Boolean = false,
+    /** از نسخهٔ ۲.۵ موتور Vulkan داخل اپ هست، پس پیش‌فرض روشن است. */
+    val gpuEnabled: Boolean = true,
     /** آیا از پایگاه دانش در پاسخ‌ها استفاده شود. */
     val knowledgeEnabled: Boolean = true
 ) {
@@ -99,7 +99,7 @@ object OfflineSettings {
             temperature = p.getFloat(KEY_TEMP, 0.7f),
             topP = p.getFloat(KEY_TOPP, 0.9f),
             topK = p.getInt(KEY_TOPK, 40),
-            gpuEnabled = p.getBoolean(KEY_GPU, false),
+            gpuEnabled = p.getBoolean(KEY_GPU, true),
             knowledgeEnabled = p.getBoolean(KEY_KB, true)
         )
         return tuning.sanitized()
