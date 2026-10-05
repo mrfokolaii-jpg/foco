@@ -57,6 +57,29 @@ jobs:
           echo "--- glslc ---"
           glslc --version | head -2
 
+      - name: Provide the SPIRV-Headers CMake config
+        run: |
+          # بستهٔ spirv-headers در اوبونتو فقط هدر نصب می‌کند و فایل تنظیمات CMake
+          # ندارد؛ در حالی که llama.cpp با find_package(SPIRV-Headers CONFIG) آن را
+          # می‌خواهد. مهم نیست چه چیزی داخلش باشد — فقط باید پیدا شود.
+          SPH=$(find /usr/include -path '*spirv/unified1/spirv.h' 2>/dev/null | head -1)
+          echo "spirv headers at: $SPH"
+          DIR=$(dirname "$(dirname "$SPH")")
+          echo "include dir: $DIR"
+          sudo mkdir -p /usr/lib/cmake/SPIRV-Headers
+          sudo tee /usr/lib/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake > /dev/null <<CFG
+          set(SPIRV-Headers_FOUND TRUE)
+          set(SPIRV-Headers_VERSION "1.4.313")
+          if (NOT TARGET SPIRV-Headers::SPIRV-Headers)
+            add_library(SPIRV-Headers::SPIRV-Headers INTERFACE IMPORTED)
+            set_target_properties(SPIRV-Headers::SPIRV-Headers PROPERTIES
+              INTERFACE_INCLUDE_DIRECTORIES "$DIR")
+          endif()
+          CFG
+          cat /usr/lib/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake
+          # راهنما برای CMake در حالت کراس‌کامپایل هم امن است.
+          echo "VULKAN_SDK=/usr" >> "$GITHUB_ENV"
+
       - name: Pick an NDK
         run: |
           SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
