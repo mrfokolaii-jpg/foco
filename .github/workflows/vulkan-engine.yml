@@ -82,7 +82,10 @@ jobs:
           # هدرهای Vulkan را همیشه از مخزن رسمی می‌گیریم: نسخهٔ بستهٔ اوبونتو ناقص است
           # (پوشهٔ vk_video را ندارد) و همان باعث خطا می‌شد.
           git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vkheaders
-          ls /tmp/vkheaders/include/vulkan/ | head -20
+          # هدرهای C++ اسپیرو هم لازم است (بستهٔ اوبونتو فقط نسخهٔ C را دارد).
+          git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-src
+          ls /tmp/vkheaders/include/vulkan/ | head -8
+          ls /tmp/spirv-src/include/spirv/unified1/ | grep -i "spirv.hpp"
 
       - name: Pick an NDK
         run: |
@@ -112,8 +115,11 @@ jobs:
           echo "--- staged ---"
           ls "$SYSINC/vulkan" | head -8
           echo "--- checks ---"
+          sudo cp -r /tmp/spirv-src/include/spirv "$SYSINC"/
+          echo "--- checks ---"
           test -f "$SYSINC/vulkan/vulkan.hpp" && echo "vulkan.hpp OK"
-          test -d "$SYSINC/vk_video" && ls "$SYSINC/vk_video" | head -5
+          test -d "$SYSINC/vk_video" && echo "vk_video OK"
+          test -f "$SYSINC/spirv/unified1/spirv.hpp" && echo "spirv.hpp OK"
 
       - name: Clone engine source (llama-android + llama.cpp)
         run: |
