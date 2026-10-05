@@ -79,12 +79,10 @@ jobs:
           cat /usr/lib/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake
           echo "VULKAN_SDK=/usr" >> "$GITHUB_ENV"
 
-          # هدرهای C++ (vulkan.hpp) را این‌جا آماده می‌کنیم؛ در گام بعد داخل خودِ NDK
-          # کپی می‌شوند (نه در مسیر شامل‌های میزبان).
-          if [ -z "$(find /usr /opt /tmp -name vulkan.hpp -path '*vulkan*' 2>/dev/null | head -1)" ]; then
-            git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vkheaders
-          fi
-          echo "vulkan.hpp ready"
+          # هدرهای Vulkan را همیشه از مخزن رسمی می‌گیریم: نسخهٔ بستهٔ اوبونتو ناقص است
+          # (پوشهٔ vk_video را ندارد) و همان باعث خطا می‌شد.
+          git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vkheaders
+          ls /tmp/vkheaders/include/vulkan/ | head -20
 
       - name: Pick an NDK
         run: |
@@ -105,18 +103,14 @@ jobs:
         run: |
           # در کراس‌کامپایل نباید مسیر شامل‌های میزبان (glibc) به کامپایلر داده شود؛
           # وگرنه خطای bits/wordsize.h می‌دهد. پس فقط هدرهای Vulkan را داخل خودِ NDK می‌گذاریم.
-          SRC=$(find /usr /opt /tmp -name vulkan.hpp -path '*vulkan*' 2>/dev/null | head -1)
-          if [ -z "$SRC" ]; then
-            git clone --depth 1 https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vkheaders
-            SRC=/tmp/vkheaders/include/vulkan/vulkan.hpp
-          fi
-          echo "vulkan.hpp source: $SRC"
           DEST="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/vulkan"
           sudo mkdir -p "$DEST"
-          # بازگشتی: پوشهٔ vk_video و بقیهٔ زیرپوشه‌ها هم لازم‌اند.
-          sudo cp -r "$(dirname "$SRC")"/. "$DEST"/ || true
+          # کل درخت هدرهای رسمی، شامل زیرپوشهٔ vk_video
+          sudo cp -r /tmp/vkheaders/include/vulkan/. "$DEST"/
           echo "--- staged ---"
           ls "$DEST" | head -20
+          echo "--- vk_video (must exist) ---"
+          test -d "$DEST/vk_video" && ls "$DEST/vk_video" | head -5
 
       - name: Clone engine source (llama-android + llama.cpp)
         run: |
