@@ -113,9 +113,10 @@ jobs:
           echo "vulkan.hpp source: $SRC"
           DEST="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/vulkan"
           sudo mkdir -p "$DEST"
-          sudo cp "$(dirname "$SRC")"/*.h* "$DEST"/ || true
+          # بازگشتی: پوشهٔ vk_video و بقیهٔ زیرپوشه‌ها هم لازم‌اند.
+          sudo cp -r "$(dirname "$SRC")"/. "$DEST"/ || true
           echo "--- staged ---"
-          ls "$DEST" | head
+          ls "$DEST" | head -20
 
       - name: Clone engine source (llama-android + llama.cpp)
         run: |
