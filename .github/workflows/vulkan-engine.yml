@@ -1,0 +1,97 @@
+name: Vulkan engine build
+
+# نسخهٔ GPU موتور (llama.cpp با پشتیبانی Vulkan) این‌جا ساخته می‌شود.
+#
+# چرا کارگاه جداگانه: کتابخانهٔ آمادهٔ Maven فقط CPU است و خودِ سازنده، مدل GPU را
+# به‌صورت نسخهٔ پولی می‌فروشد. ولی کد کتابخانه MIT است و روشن‌کردن GPU فقط یک پرچم
+# ساخت است (GGML_VULKAN). پس خودمان با همان پرچم روشن می‌سازیم.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout app repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Vulkan build tools (glslc + headers) and ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends glslc libvulkan-dev ninja-build
+          glslc --version | head -2
+
+      - name: Pick an NDK
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "SDK=$SDK"
+          NDK="$SDK/ndk/27.2.12479018"
+          if [ ! -d "$NDK" ]; then
+            yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+            "$SDK/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" || true
+          fi
+          if [ ! -d "$NDK" ]; then
+            NDK=$(ls -d "$SDK"/ndk/* 2>/dev/null | sort -V | tail -1)
+          fi
+          echo "NDK_DIR=$NDK" >> "$GITHUB_ENV"
+          test -d "$NDK" && echo "using NDK: $NDK"
+
+      - name: Clone engine source (llama-android + llama.cpp)
+        run: |
+          git clone --depth 1 https://github.com/ffmpegkit-maintained/llama-android.git engine
+          cd engine
+          git submodule update --init --recursive --depth 1
+          echo "llama.cpp commit: $(git -C llama.cpp rev-parse HEAD)"
+          ls llama.cpp/include/llama.h
+
+      - name: Turn the Vulkan flag ON
+        run: |
+          cd engine
+          sed -i 's/set(GGML_VULKAN          OFF/set(GGML_VULKAN          ON /' library/src/main/jni/CMakeLists.txt
+          grep -n "GGML_VULKAN" library/src/main/jni/CMakeLists.txt
+
+      - name: Configure (arm64-v8a, Vulkan ON)
+        run: |
+          cmake -S engine/library/src/main/jni -B vbuild -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_DIR/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DGGML_VULKAN=ON \
+            -DGGML_OPENMP=OFF \
+            -DGGML_LLAMAFILE=OFF \
+            -DLLAMA_CURL=OFF \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_SERVER=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF \
+            -DLLAMA_BUILD_COMMON=OFF
+
+      - name: Build engine (this takes a while)
+        run: cmake --build vbuild --target llama_jni -j 4
+
+      - name: Collect .so files
+        run: |
+          mkdir -p out
+          find vbuild -name "*.so" -not -path "*/CMakeFiles/*" -exec cp -v {} out/ \;
+          echo "--- collected ---"
+          ls -l out
+          echo "--- vulkan backend present? ---"
+          ls out | grep -i vulkan || echo "NO VULKAN LIB BUILT"
+
+      - name: Upload built engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulkan-engine-libs
+          path: out/*
+          if-no-files-found: error
