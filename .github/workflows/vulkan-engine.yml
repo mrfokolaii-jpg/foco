@@ -103,14 +103,17 @@ jobs:
         run: |
           # در کراس‌کامپایل نباید مسیر شامل‌های میزبان (glibc) به کامپایلر داده شود؛
           # وگرنه خطای bits/wordsize.h می‌دهد. پس فقط هدرهای Vulkan را داخل خودِ NDK می‌گذاریم.
-          DEST="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/vulkan"
-          sudo mkdir -p "$DEST"
-          # کل درخت هدرهای رسمی، شامل زیرپوشهٔ vk_video
-          sudo cp -r /tmp/vkheaders/include/vulkan/. "$DEST"/
+          SYSINC="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include"
+          # نکتهٔ کلیدی: در هدرهای Vulkan، پوشهٔ vk_video *کنار* پوشهٔ vulkan است
+          # (vulkan_core.h می‌نویسد #include "vk_video/..."). پس هر دو را جدا کپی می‌کنیم.
+          sudo mkdir -p "$SYSINC"
+          sudo cp -r /tmp/vkheaders/include/vulkan "$SYSINC"/
+          sudo cp -r /tmp/vkheaders/include/vk_video "$SYSINC"/
           echo "--- staged ---"
-          ls "$DEST" | head -20
-          echo "--- vk_video (must exist) ---"
-          test -d "$DEST/vk_video" && ls "$DEST/vk_video" | head -5
+          ls "$SYSINC/vulkan" | head -8
+          echo "--- checks ---"
+          test -f "$SYSINC/vulkan/vulkan.hpp" && echo "vulkan.hpp OK"
+          test -d "$SYSINC/vk_video" && ls "$SYSINC/vk_video" | head -5
 
       - name: Clone engine source (llama-android + llama.cpp)
         run: |
