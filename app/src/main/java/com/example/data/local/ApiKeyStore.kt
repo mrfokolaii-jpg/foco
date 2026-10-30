@@ -20,7 +20,6 @@ class ApiKeyStore(context: Context) {
 
     fun keyFor(provider: AiProviderKind): String = when (provider) {
         AiProviderKind.HUGGINGFACE -> getHuggingFaceKey()
-        AiProviderKind.BUILTIN_FREE -> "FREE"
     }
 
     fun hasAnyKey(): Boolean = getHuggingFaceKey().isNotBlank()
@@ -42,7 +41,6 @@ data class ApiKeySnapshot(
 ) {
     fun isConfigured(provider: AiProviderKind): Boolean = when (provider) {
         AiProviderKind.HUGGINGFACE -> huggingFaceConfigured
-        AiProviderKind.BUILTIN_FREE -> true
     }
 
     fun hasAny(): Boolean = huggingFaceConfigured
