@@ -70,6 +70,9 @@ data class SettingsUiState(
     val apiKey: String = "",
     val baseUrl: String = ApiKeyStore.DEFAULT_BASE_URL,
     val modelName: String = ApiKeyStore.DEFAULT_MODEL,
+    val apiKey2: String = "",
+    val baseUrl2: String = ApiKeyStore.DEFAULT_BASE_URL2,
+    val modelName2: String = ApiKeyStore.DEFAULT_MODEL2,
     val userEmail: String = "mrfokolaii@gmail.com",
     val accessibilityEnabled: Boolean = false,
     val snapshot: ApiKeySnapshot = ApiKeySnapshot()
@@ -80,15 +83,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
-    init {
-        loadKeys()
-    }
+    init { loadKeys() }
 
     fun loadKeys() {
         _uiState.value = SettingsUiState(
             apiKey = keyStore.getHuggingFaceKey(),
             baseUrl = keyStore.getBaseUrl(),
             modelName = keyStore.getModelName(),
+            apiKey2 = keyStore.getApiKey2(),
+            baseUrl2 = keyStore.getBaseUrl2(),
+            modelName2 = keyStore.getModelName2(),
             userEmail = keyStore.getUserEmail(),
             accessibilityEnabled = keyStore.isAccessibilityEnabled(),
             snapshot = keyStore.snapshot()
@@ -99,6 +103,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         apiKey: String,
         baseUrl: String,
         modelName: String,
+        apiKey2: String,
+        baseUrl2: String,
+        modelName2: String,
         email: String,
         accessibility: Boolean
     ) {
@@ -106,6 +113,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             keyStore.setHuggingFaceKey(apiKey)
             keyStore.setBaseUrl(baseUrl)
             keyStore.setModelName(modelName)
+            keyStore.setApiKey2(apiKey2)
+            keyStore.setBaseUrl2(baseUrl2)
+            keyStore.setModelName2(modelName2)
             keyStore.setUserEmail(email)
             keyStore.setAccessibilityEnabled(accessibility)
             loadKeys()
@@ -125,19 +135,26 @@ fun SettingsScreen(
     var apiKey by remember(uiState.apiKey) { mutableStateOf(uiState.apiKey) }
     var baseUrl by remember(uiState.baseUrl) { mutableStateOf(uiState.baseUrl) }
     var modelName by remember(uiState.modelName) { mutableStateOf(uiState.modelName) }
+    var apiKey2 by remember(uiState.apiKey2) { mutableStateOf(uiState.apiKey2) }
+    var baseUrl2 by remember(uiState.baseUrl2) { mutableStateOf(uiState.baseUrl2) }
+    var modelName2 by remember(uiState.modelName2) { mutableStateOf(uiState.modelName2) }
     var emailInput by remember(uiState.userEmail) { mutableStateOf(uiState.userEmail) }
     var accessibilityState by remember(uiState.accessibilityEnabled) { mutableStateOf(uiState.accessibilityEnabled) }
     var showAccessibilityHelpDialog by remember { mutableStateOf(false) }
     var showApiKey by remember { mutableStateOf(false) }
+    var showApiKey2 by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
+
+    fun saveEverything(accessibility: Boolean = accessibilityState) {
+        viewModel.saveAll(apiKey, baseUrl, modelName, apiKey2, baseUrl2, modelName2, emailInput, accessibility)
+        Toast.makeText(context, "تنظیمات ذخیره شد", Toast.LENGTH_SHORT).show()
+    }
 
     if (showAccessibilityHelpDialog) {
         AlertDialog(
             onDismissRequest = { showAccessibilityHelpDialog = false },
-            title = {
-                Text("راهنمای فعال‌سازی دسترسی‌پذیری", fontWeight = FontWeight.Bold)
-            },
+            title = { Text("راهنمای فعال‌سازی دسترسی‌پذیری", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
                     "در صفحه تنظیمات گوشی شما:\n\n" +
@@ -150,20 +167,17 @@ fun SettingsScreen(
                 Button(
                     onClick = {
                         showAccessibilityHelpDialog = false
-                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                        }
-                        context.startActivity(intent)
+                        context.startActivity(
+                            Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                        )
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
-                ) {
-                    Text("رفتن به تنظیمات گوشی", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
+                ) { Text("رفتن به تنظیمات گوشی", color = Color.Black, fontWeight = FontWeight.Bold) }
             },
             dismissButton = {
-                TextButton(onClick = { showAccessibilityHelpDialog = false }) {
-                    Text("انصراف")
-                }
+                TextButton(onClick = { showAccessibilityHelpDialog = false }) { Text("انصراف") }
             }
         )
     }
@@ -185,8 +199,7 @@ fun SettingsScreen(
                 Text(
                     text = "تنظیمات، کلیدها و دسترسی‌ها",
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "مدیریت هوش مصنوعی و یکپارچه‌سازی سیستم فوکو",
@@ -202,7 +215,7 @@ fun SettingsScreen(
             }
         }
 
-        // Status card
+        // وضعیت مدل‌های فعال
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -210,41 +223,48 @@ fun SettingsScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    text = "وضعیت اتصال هوش مصنوعی:",
+                    text = "مدل‌های فعال بر اساس کلیدها:",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = PersianTurquoise
                 )
-                ProviderStatusRow(
-                    title = "API Key",
-                    subtitle = if (uiState.snapshot.huggingFaceConfigured) "کلید فعال است" else "کلید وارد نشده",
-                    isActive = uiState.snapshot.huggingFaceConfigured
-                )
-                ProviderStatusRow(
-                    title = "مدل: ${uiState.snapshot.modelName}",
-                    subtitle = "لینک: ${uiState.snapshot.baseUrl}",
-                    isActive = uiState.snapshot.huggingFaceConfigured
-                )
+                if (uiState.snapshot.huggingFaceConfigured) {
+                    ProviderStatusRow(
+                        title = uiState.snapshot.modelName,
+                        subtitle = "کلید ۱ · ${uiState.snapshot.baseUrl}",
+                        isActive = true
+                    )
+                }
+                if (uiState.snapshot.apiKey2Configured) {
+                    ProviderStatusRow(
+                        title = uiState.snapshot.modelName2,
+                        subtitle = "کلید ۲ · ${uiState.snapshot.baseUrl2}",
+                        isActive = true
+                    )
+                }
+                if (!uiState.snapshot.huggingFaceConfigured && !uiState.snapshot.apiKey2Configured) {
+                    Text(
+                        text = "هیچ کلیدی ثبت نشده. با وارد کردن کلید، مدل مربوطه اینجا نمایش داده می‌شود.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 
-        // API Key + Base URL + Model
+        // کلید ۱
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "کلید API، لینک سایت و مدل",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("کلید API ۱ (اصلی)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
 
                 OutlinedTextField(
                     value = apiKey,
                     onValueChange = { apiKey = it },
-                    label = { Text("کلید API (API Key)") },
+                    label = { Text("کلید API") },
                     singleLine = true,
                     visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
@@ -255,7 +275,6 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
-
                 OutlinedTextField(
                     value = baseUrl,
                     onValueChange = { baseUrl = it },
@@ -265,7 +284,6 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
-
                 OutlinedTextField(
                     value = modelName,
                     onValueChange = { modelName = it },
@@ -275,21 +293,82 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
-
+                if (apiKey.isNotBlank()) {
+                    Text(
+                        text = "با این کلید فعال می‌شود: $modelName",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PersianTurquoise
+                    )
+                }
                 Button(
-                    onClick = {
-                        viewModel.saveAll(apiKey, baseUrl, modelName, emailInput, accessibilityState)
-                        Toast.makeText(context, "تنظیمات ذخیره شد", Toast.LENGTH_SHORT).show()
-                    },
+                    onClick = { saveEverything() },
                     colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("ذخیره تنظیمات", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("ذخیره کلید ۱", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        // Account / connectors
+        // کلید ۲
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("کلید API ۲ (اضافی)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                OutlinedTextField(
+                    value = apiKey2,
+                    onValueChange = { apiKey2 = it },
+                    label = { Text("کلید API") },
+                    singleLine = true,
+                    visualTransformation = if (showApiKey2) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showApiKey2 = !showApiKey2 }) {
+                            Text(if (showApiKey2) "مخفی" else "نمایش", fontSize = 12.sp)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = baseUrl2,
+                    onValueChange = { baseUrl2 = it },
+                    label = { Text("لینک سایت / Base URL") },
+                    singleLine = true,
+                    placeholder = { Text(ApiKeyStore.DEFAULT_BASE_URL2) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = modelName2,
+                    onValueChange = { modelName2 = it },
+                    label = { Text("مدل (Model)") },
+                    singleLine = true,
+                    placeholder = { Text(ApiKeyStore.DEFAULT_MODEL2) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                if (apiKey2.isNotBlank()) {
+                    Text(
+                        text = "با این کلید فعال می‌شود: $modelName2",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = PersianTurquoise
+                    )
+                }
+                Button(
+                    onClick = { saveEverything() },
+                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("ذخیره کلید ۲", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // حساب
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -299,13 +378,8 @@ fun SettingsScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.AccountCircle, contentDescription = null, tint = PersianTurquoise)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "حساب و اتصالات",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("حساب و اتصالات", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 }
-
                 OutlinedTextField(
                     value = emailInput,
                     onValueChange = { emailInput = it },
@@ -315,20 +389,11 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
-
                 val connectorSnapshot = ConnectorStore(context).snapshot()
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    AccountBadge("GitHub", if (connectorSnapshot.githubConfigured) "متصل" else "قطع", connectorSnapshot.githubConfigured, modifier = Modifier.weight(1f))
-                    AccountBadge("HuggingFace", if (connectorSnapshot.huggingFaceConfigured) "متصل" else "قطع", connectorSnapshot.huggingFaceConfigured, modifier = Modifier.weight(1f))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AccountBadge("GitHub", if (connectorSnapshot.githubConfigured) "متصل" else "قطع", connectorSnapshot.githubConfigured, Modifier.weight(1f))
+                    AccountBadge("HuggingFace", if (connectorSnapshot.huggingFaceConfigured) "متصل" else "قطع", connectorSnapshot.huggingFaceConfigured, Modifier.weight(1f))
                 }
-                Text(
-                    text = "برای اتصال واقعی ابزارها به تب «ابزارها» بروید.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
 
@@ -345,32 +410,17 @@ fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "سرویس دسترسی‌پذیری و کنترل دستگاه (Accessibility)",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "برای لمس خودکار، خواندن صفحه و اجرای فرامین صوتی گوشی",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Text("سرویس دسترسی‌پذیری (Accessibility)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text("لمس خودکار، خواندن صفحه و فرامین صوتی", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-
                     Switch(
                         checked = systemAccessibilityEnabled,
                         onCheckedChange = { newState ->
                             accessibilityState = newState
-                            if (newState) {
-                                showAccessibilityHelpDialog = true
-                            } else {
-                                viewModel.saveAll(apiKey, baseUrl, modelName, emailInput, false)
-                            }
+                            if (newState) showAccessibilityHelpDialog = true
+                            else saveEverything(false)
                         },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = PersianTurquoise
-                        )
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = PersianTurquoise)
                     )
                 }
             }
@@ -381,15 +431,8 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun ProviderStatusRow(
-    title: String,
-    subtitle: String,
-    isActive: Boolean
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+private fun ProviderStatusRow(title: String, subtitle: String, isActive: Boolean) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Icon(
             imageVector = if (isActive) Icons.Default.CheckCircle else Icons.Default.Close,
             contentDescription = null,
@@ -405,27 +448,15 @@ private fun ProviderStatusRow(
 }
 
 @Composable
-private fun AccountBadge(
-    title: String,
-    status: String,
-    active: Boolean,
-    modifier: Modifier = Modifier
-) {
+private fun AccountBadge(title: String, status: String, active: Boolean, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(10.dp),
         color = if (active) PersianTurquoise.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant
     ) {
-        Column(
-            modifier = Modifier.padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(text = title, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Text(
-                text = status,
-                fontSize = 10.sp,
-                color = if (active) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(text = status, fontSize = 10.sp, color = if (active) PersianTurquoise else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
