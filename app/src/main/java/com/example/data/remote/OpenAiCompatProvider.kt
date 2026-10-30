@@ -147,69 +147,8 @@ object PollinationsFreeProvider {
     )
 }
 
-object XaiGrokProvider {
-    private const val ENDPOINT = "https://api.x.ai/v1/chat/completions"
-
-    suspend fun chat(
-        apiKey: String,
-        apiModelId: String,
-        catalogId: String,
-        conversationHistory: List<ChatMessage>,
-        systemInstructionText: String
-    ): ApiResult<ChatApiResponse> = OpenAiCompatProvider.chat(
-        endpoint = ENDPOINT,
-        apiKey = apiKey,
-        apiModelId = apiModelId,
-        catalogId = catalogId,
-        conversationHistory = conversationHistory,
-        systemInstructionText = systemInstructionText
-    )
-}
-
 object HuggingFaceProvider {
     private const val ENDPOINT = "https://router.huggingface.co/v1/chat/completions"
-
-    suspend fun chat(
-        apiKey: String,
-        apiModelId: String,
-        catalogId: String,
-        conversationHistory: List<ChatMessage>,
-        systemInstructionText: String
-    ): ApiResult<ChatApiResponse> = OpenAiCompatProvider.chat(
-        endpoint = ENDPOINT,
-        apiKey = apiKey,
-        apiModelId = apiModelId,
-        catalogId = catalogId,
-        conversationHistory = conversationHistory,
-        systemInstructionText = systemInstructionText
-    )
-}
-
-object OpenRouterProvider {
-    private const val ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-
-    suspend fun chat(
-        apiKey: String,
-        apiModelId: String,
-        catalogId: String,
-        conversationHistory: List<ChatMessage>,
-        systemInstructionText: String
-    ): ApiResult<ChatApiResponse> = OpenAiCompatProvider.chat(
-        endpoint = ENDPOINT,
-        apiKey = apiKey,
-        apiModelId = apiModelId,
-        catalogId = catalogId,
-        conversationHistory = conversationHistory,
-        systemInstructionText = systemInstructionText,
-        extraHeaders = mapOf(
-            "HTTP-Referer" to "https://foko.ai",
-            "X-Title" to "FOKO AI"
-        )
-    )
-}
-
-object GroqProvider {
-    private const val ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 
     suspend fun chat(
         apiKey: String,
