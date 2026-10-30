@@ -1,8 +1,6 @@
 package com.example.data.remote
 
 import com.example.data.local.ApiKeyStore
-import com.example.data.model.AiModelCatalog
-import com.example.data.model.AiModelOption
 import com.example.data.model.AiProviderKind
 import com.example.data.model.CatalogModel
 import com.example.data.model.ChatMessage
@@ -47,60 +45,14 @@ object AiRouter {
                     systemInstructionText = effectiveSystemPrompt
                 )
             }
-            AiProviderKind.XAI_GROK -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
-                XaiGrokProvider.chat(
-                    apiKey = key,
-                    apiModelId = catalogModel.apiModelId,
-                    catalogId = catalogModel.id,
-                    conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt
-                )
-            }
-            AiProviderKind.OPENROUTER -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
-                OpenRouterProvider.chat(
-                    apiKey = key,
-                    apiModelId = catalogModel.apiModelId,
-                    catalogId = catalogModel.id,
-                    conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt
-                )
-            }
-            AiProviderKind.GROQ -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
-                GroqProvider.chat(
-                    apiKey = key,
-                    apiModelId = catalogModel.apiModelId,
-                    catalogId = catalogModel.id,
-                    conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt
-                )
-            }
-            AiProviderKind.GEMINI -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
-                GeminiApiService.runtimeApiKeyOverride = key
-                val option = AiModelCatalog.toGeminiOption(catalogModel) ?: AiModelOption.FLASH
-                GeminiApiService.generateChatResponse(
-                    conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt,
-                    selectedModel = option,
-                    enableThinkingMode = enableThinkingMode,
-                    enableGoogleSearch = enableGoogleSearch
-                )
-            }
         }
     }
 
     fun pickDefault(keyStore: ApiKeyStore): CatalogModel {
         val snapshot = keyStore.snapshot()
         return when {
-            snapshot.huggingFaceConfigured -> AiModelCatalog.hfQwen25
-            snapshot.xaiGrokConfigured -> AiModelCatalog.xaiGrok2
-            snapshot.openRouterConfigured -> AiModelCatalog.orLlamaFree
-            snapshot.groqConfigured -> AiModelCatalog.groqLlama33
-            snapshot.geminiConfigured -> AiModelCatalog.geminiFlash
-            else -> AiModelCatalog.builtinFree
+            snapshot.huggingFaceConfigured -> com.example.data.model.AiModelCatalog.hfQwen25
+            else -> com.example.data.model.AiModelCatalog.builtinFree
         }
     }
 }
