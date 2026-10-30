@@ -96,7 +96,7 @@ object OpenAiCompatProvider {
                 .addHeader("Content-Type", "application/json")
                 .post(body.toString().toRequestBody(ProviderHttp.JSON))
 
-            if (apiKey.isNotBlank() && apiKey != "FREE") {
+            if (apiKey.isNotBlank()) {
                 builder.addHeader("Authorization", "Bearer $apiKey")
             }
             extraHeaders.forEach { (k, v) -> builder.addHeader(k, v) }
@@ -129,22 +129,6 @@ object OpenAiCompatProvider {
             ApiResult.Error("اتصال اینترنت برقرار نشد: ${e.localizedMessage ?: "خطای شبکه"}")
         }
     }
-}
-
-object PollinationsFreeProvider {
-    private const val ENDPOINT = "https://text.pollinations.ai/openai"
-
-    suspend fun chat(
-        conversationHistory: List<ChatMessage>,
-        systemInstructionText: String
-    ): ApiResult<ChatApiResponse> = OpenAiCompatProvider.chat(
-        endpoint = ENDPOINT,
-        apiKey = "FREE",
-        apiModelId = "openai-large",
-        catalogId = "foko-free",
-        conversationHistory = conversationHistory,
-        systemInstructionText = systemInstructionText
-    )
 }
 
 object HuggingFaceProvider {
