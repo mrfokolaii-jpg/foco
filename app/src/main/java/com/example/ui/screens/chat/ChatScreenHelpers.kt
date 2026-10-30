@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,26 +17,25 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -53,7 +51,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -165,7 +162,6 @@ fun ModernChatInputBar(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // + button with dropdown menu
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
                     Icon(
@@ -184,9 +180,7 @@ fun ModernChatInputBar(
                             menuExpanded = false
                             onSelectModelClick()
                         },
-                        leadingIcon = {
-                            Icon(Icons.Default.Settings, contentDescription = null)
-                        }
+                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
                     )
                     DropdownMenuItem(
                         text = { Text(if (isListening) "در حال شنیدن..." else "ورودی صوتی") },
@@ -208,9 +202,7 @@ fun ModernChatInputBar(
                             menuExpanded = false
                             onAttachClick()
                         },
-                        leadingIcon = {
-                            Icon(Icons.Default.PhotoLibrary, contentDescription = null)
-                        }
+                        leadingIcon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null) }
                     )
                     DropdownMenuItem(
                         text = { Text("ارسال فایل") },
@@ -218,8 +210,23 @@ fun ModernChatInputBar(
                             menuExpanded = false
                             onAttachFileClick()
                         },
+                        leadingIcon = { Icon(Icons.Default.AttachFile, contentDescription = null) }
+                    )
+
+                    HorizontalDivider()
+
+                    DropdownMenuItem(
+                        text = { Text("اتصال‌دهنده GitHub") },
+                        onClick = {
+                            menuExpanded = false
+                            onPluginsClick()
+                        },
                         leadingIcon = {
-                            Icon(Icons.Default.AttachFile, contentDescription = null)
+                            Icon(
+                                Icons.Default.Hub,
+                                contentDescription = null,
+                                tint = PersianTurquoise
+                            )
                         }
                     )
                     DropdownMenuItem(
@@ -228,14 +235,11 @@ fun ModernChatInputBar(
                             menuExpanded = false
                             onPluginsClick()
                         },
-                        leadingIcon = {
-                            Icon(Icons.Default.Settings, contentDescription = null)
-                        }
+                        leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) }
                     )
                 }
             }
 
-            // Text field
             OutlinedTextField(
                 value = inputText,
                 onValueChange = onTextChanged,
@@ -251,7 +255,6 @@ fun ModernChatInputBar(
 
             Spacer(modifier = Modifier.width(4.dp))
 
-            // Send button
             IconButton(
                 onClick = onSendMessage,
                 enabled = !isLoading && (inputText.isNotBlank() || hasImages || hasFiles)
