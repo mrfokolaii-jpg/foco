@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.connectors.ConnectorResult
 import com.example.data.connectors.ConnectorStore
 import com.example.data.connectors.GitHubConnector
-import com.example.data.connectors.GoogleDriveConnector
 import com.example.data.connectors.HuggingFaceConnector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,16 +18,11 @@ data class ConnectorsUiState(
     val githubRepo: String = ConnectorStore.DEFAULT_GH_REPO,
     val githubBranch: String = ConnectorStore.DEFAULT_GH_BRANCH,
     val hfToken: String = "",
-    val driveClientId: String = "",
-    val driveClientSecret: String = "",
-    val driveRefreshToken: String = "",
-    val driveAccessToken: String = "",
     val autoUpgrade: Boolean = true,
     val continuousVoice: Boolean = true,
     val overlayRunning: Boolean = false,
     val githubStatus: String? = null,
     val hfStatus: String? = null,
-    val driveStatus: String? = null,
     val busy: Boolean = false,
     val lastMessage: String? = null
 )
@@ -49,10 +43,6 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
             githubRepo = store.githubRepo(),
             githubBranch = store.githubBranch(),
             hfToken = store.hfToken(),
-            driveClientId = store.driveClientId(),
-            driveClientSecret = store.driveClientSecret(),
-            driveRefreshToken = store.driveRefreshToken(),
-            driveAccessToken = store.driveAccessToken(),
             autoUpgrade = store.isAutoUpgradeEnabled(),
             continuousVoice = store.isContinuousVoiceEnabled(),
             overlayRunning = store.isOverlayEnabled()
@@ -72,12 +62,6 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
     fun saveHuggingFace() {
         store.setHfToken(_uiState.value.hfToken)
         _uiState.value = _uiState.value.copy(lastMessage = "توکن Hugging Face ذخیره شد.")
-    }
-
-    fun saveDrive() {
-        val s = _uiState.value
-        store.setDrive(s.driveClientId, s.driveClientSecret, s.driveRefreshToken, s.driveAccessToken)
-        _uiState.value = s.copy(lastMessage = "تنظیمات گوگل درایو ذخیره شد.")
     }
 
     fun testGitHub() {
@@ -105,22 +89,6 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
                     is ConnectorResult.Err -> result.message
                 }
             )
-        }
-    }
-
-    fun testDrive() {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(busy = true, driveStatus = "در حال بررسی...")
-            val token = GoogleDriveConnector.ensureAccessToken(store)
-            val status = when (token) {
-                is ConnectorResult.Ok -> when (val about = GoogleDriveConnector.about(token.value)) {
-                    is ConnectorResult.Ok -> "متصل ✓  (${about.value})"
-                    is ConnectorResult.Err -> about.message
-                }
-                is ConnectorResult.Err -> token.message
-            }
-            load()
-            _uiState.value = _uiState.value.copy(busy = false, driveStatus = status)
         }
     }
 
