@@ -17,16 +17,12 @@ import com.example.data.local.ChatConversationEntity
 import com.example.data.local.ChatMessageEntity
 import com.example.data.local.LibraryItemEntity
 import com.example.data.model.AiModelCatalog
-import com.example.data.model.AiModelOption
-import com.example.data.model.AiProviderKind
 import com.example.data.model.CatalogModel
 import com.example.data.model.ChatMessage
 import com.example.data.model.GroundingSource
 import com.example.data.model.MessageSender
 import com.example.data.model.SystemPersona
 import com.example.data.remote.AiRouter
-import com.example.data.remote.ApiResult
-import com.example.data.remote.GeminiApiService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -36,7 +32,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.json.JSONArray
-import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 
@@ -58,7 +53,6 @@ data class ChatUiState(
     val currentConversationId: String = UUID.randomUUID().toString(),
     val conversationTitle: String = "گفتگوی جدید",
     val messages: List<ChatMessage> = emptyList(),
-    val selectedModel: AiModelOption = AiModelOption.FLASH,
     val selectedCatalogModel: CatalogModel = AiModelCatalog.defaultModel(),
     val isAutoMode: Boolean = true,
     val selectedPersona: SystemPersona = SystemPersona.GENERAL,
@@ -92,11 +86,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         val defaultCatalog = AiRouter.pickDefault(keyStore)
-        GeminiApiService.runtimeApiKeyOverride = keyStore.getGeminiKey()
-        _uiState.value = _uiState.value.copy(
-            selectedCatalogModel = defaultCatalog,
-            selectedModel = AiModelCatalog.toGeminiOption(defaultCatalog) ?: AiModelOption.FLASH
-        )
+        _uiState.value = _uiState.value.copy(selectedCatalogModel = defaultCatalog)
         checkApiKey()
         observeConversations()
         startNewConversation()
@@ -108,10 +98,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val current = _uiState.value.selectedCatalogModel
         if (keyStore.keyFor(current.provider).isBlank()) {
             val next = AiRouter.pickDefault(keyStore)
-            _uiState.value = _uiState.value.copy(
-                selectedCatalogModel = next,
-                selectedModel = AiModelCatalog.toGeminiOption(next) ?: AiModelOption.FLASH
-            )
+            _uiState.value = _uiState.value.copy(selectedCatalogModel = next)
         }
     }
 
@@ -143,27 +130,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun selectModel(model: AiModelOption) {
-        selectCatalogModel(AiModelCatalog.fromGeminiOption(model))
-    }
-
     fun enableAutoMode() {
         val autoModel = AiRouter.pickDefault(keyStore)
         _uiState.value = _uiState.value.copy(
             isAutoMode = true,
-            selectedCatalogModel = autoModel,
-            selectedModel = AiModelCatalog.toGeminiOption(autoModel) ?: AiModelOption.FLASH
+            selectedCatalogModel = autoModel
         )
     }
 
     fun selectCatalogModel(model: CatalogModel) {
-        val geminiOption = AiModelCatalog.toGeminiOption(model)
         _uiState.value = _uiState.value.copy(
             isAutoMode = false,
-            selectedCatalogModel = model,
-            selectedModel = geminiOption ?: _uiState.value.selectedModel,
-            isThinkingModeEnabled = if (model.provider != AiProviderKind.GEMINI) false else _uiState.value.isThinkingModeEnabled,
-            isGoogleSearchEnabled = if (model.provider != AiProviderKind.GEMINI) false else _uiState.value.isGoogleSearchEnabled
+            selectedCatalogModel = model
         )
     }
 
@@ -172,22 +150,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun getActiveModels(): List<CatalogModel> = AiModelCatalog.activeModels(keyStore.snapshot())
 
     fun toggleThinkingMode(enabled: Boolean) {
-        val catalog = if (enabled) AiModelCatalog.findById("gemini-pro") ?: _uiState.value.selectedCatalogModel
-        else _uiState.value.selectedCatalogModel
-        _uiState.value = _uiState.value.copy(
-            isThinkingModeEnabled = enabled,
-            selectedModel = if (enabled) AiModelOption.PRO else _uiState.value.selectedModel,
-            selectedCatalogModel = catalog
-        )
+        _uiState.value = _uiState.value.copy(isThinkingModeEnabled = enabled)
     }
 
     fun toggleGoogleSearch(enabled: Boolean) {
-        val nextGemini = if (enabled && _uiState.value.selectedModel == AiModelOption.LITE) AiModelOption.FLASH else _uiState.value.selectedModel
-        _uiState.value = _uiState.value.copy(
-            isGoogleSearchEnabled = enabled,
-            selectedModel = nextGemini,
-            selectedCatalogModel = if (enabled) AiModelCatalog.fromGeminiOption(nextGemini) else _uiState.value.selectedCatalogModel
-        )
+        _uiState.value = _uiState.value.copy(isGoogleSearchEnabled = enabled)
     }
 
     fun selectPersona(persona: SystemPersona) {
@@ -231,12 +198,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearAttachedImages() {
-        _uiState.value = _uiState.value.copy(
-            attachedImages = emptyList()
-        )
+        _uiState.value = _uiState.value.copy(attachedImages = emptyList())
     }
-
-    // ---- File attachments (zip, documents, any file) ------------------------
 
     private val textFileExtensions = setOf(
         "txt", "md", "json", "csv", "xml", "html", "htm", "kt", "java", "py",
@@ -295,7 +258,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val currentFiles = _uiState.value.attachedFiles
         if (trimmed.isBlank() && currentImages.isEmpty() && currentFiles.isEmpty()) return
 
-        // Build a context block from attached files so the agent can work with them.
         val filesBlock = if (currentFiles.isEmpty()) "" else currentFiles.joinToString("\n\n") { f ->
             val sizeKb = (f.sizeBytes / 1024).coerceAtLeast(1)
             if (f.textContent != null) {
@@ -323,7 +285,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val updatedMessages = _uiState.value.messages + userMessage
         val conversationId = _uiState.value.currentConversationId
 
-        // Update conversation title if first user prompt
         val isFirstUserMessage = _uiState.value.messages.none { it.sender == MessageSender.USER }
         val titleSource = trimmed.ifBlank { currentFiles.firstOrNull()?.name.orEmpty() }
         val newTitle = if (isFirstUserMessage && titleSource.isNotBlank()) {
@@ -342,13 +303,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             messages = updatedMessages,
             selectedCatalogModel = effectiveModel,
             isLoading = true,
-            statusMessage = if (_uiState.value.isThinkingModeEnabled) "در حال تفکر عمیق و بررسی گام‌به‌گام..." else if (_uiState.value.isGoogleSearchEnabled) "در حال جستجو در گوگل و استخراج اطلاعات..." else "در حال پردازش و تولید پاسخ...",
+            statusMessage = if (_uiState.value.isThinkingModeEnabled) "در حال تفکر عمیق و بررسی گام‌به‌گام..." else if (_uiState.value.isGoogleSearchEnabled) "در حال جستجو در وب و استخراج اطلاعات..." else "در حال پردازش و تولید پاسخ...",
             attachedImages = emptyList(),
             attachedFiles = emptyList(),
             conversationTitle = newTitle
         )
 
-        // Save conversation and message to Room
         viewModelScope.launch {
             chatDao.insertConversation(
                 ChatConversationEntity(
@@ -370,8 +330,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
 
-            // Everything is handled by the autonomous agent, which can call the
-            // device-control tools itself instead of blindly matching keywords.
             val appCtx = getApplication<Application>()
 
             val replyText = AgentEngine.run(
@@ -479,10 +437,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             libraryDao.insertItem(
                 LibraryItemEntity(
                     id = UUID.randomUUID().toString(),
-                    sourceType = "CHAT_MESSAGE",
-                    sourceId = message.id,
                     title = title,
-                    previewText = message.text.take(200)
+                    content = message.text,
+                    type = "chat",
+                    createdAt = System.currentTimeMillis()
                 )
             )
         }
