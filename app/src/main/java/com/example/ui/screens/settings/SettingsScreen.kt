@@ -2,7 +2,6 @@ package com.example.ui.screens.settings
 
 import android.app.Application
 import android.content.Intent
-import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -204,12 +203,6 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = PersianTurquoise
-                )
-
-                ProviderStatusRow(
-                    title = "هوش مصنوعی رایگان داخلی فوکو",
-                    subtitle = "پاسخگویی سریع بدون نیاز به کلید (Pollinations Free)",
-                    isActive = true
                 )
 
                 ProviderStatusRow(
