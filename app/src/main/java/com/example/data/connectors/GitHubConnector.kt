@@ -13,9 +13,9 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 /**
- * Thin, dependency-free GitHub REST client.
- * Supports the operations FOKO needs: identity check, repo listing, file read/write
- * (used by the self-upgrade / knowledge-harvest pipeline) and code search.
+ * Thin GitHub REST client.
+ * Public repos: read works without token.
+ * Private repos / write / list-own-repos: token required.
  */
 object GitHubConnector {
 
@@ -37,38 +37,53 @@ object GitHubConnector {
             .apply { if (token.isNotBlank()) addHeader("Authorization", "Bearer $token") }
 
     private fun mapError(code: Int, body: String): String = when (code) {
-        401 -> "توکن گیت‌هاب نامعتبر است یا منقضی شده (۴۰۱)."
+        401 -> "توکن گیت‌هاب نامعتبر است یا برای این عملیات لازم است (۴۰۱)."
         403 -> "دسترسی گیت‌هاب رد شد یا محدودیت نرخ فعال شد (۴۰۳)."
         404 -> "مخزن یا مسیر مورد نظر در گیت‌هاب پیدا نشد (۴۰۴)."
         409 -> "تداخل در گیت‌هاب؛ فایل بین دو درخواست تغییر کرده است (۴۰۹)."
         422 -> "داده ارسالی به گیت‌هاب نامعتبر بود (۴۲۲)."
         in 500..599 -> "سرور گیت‌هاب موقتاً پاسخگو نیست."
         else -> {
-            val msg = try {
-                JSONObject(body).optString("message")
-            } catch (_: Exception) {
-                ""
-            }
+            val msg = try { JSONObject(body).optString("message") } catch (_: Exception) { "" }
             msg.ifBlank { "خطای گیت‌هاب ($code)" }
         }
     }
 
     suspend fun whoAmI(token: String): ConnectorResult<String> = withContext(Dispatchers.IO) {
-        if (token.isBlank()) return@withContext ConnectorResult.Err("توکن گیت‌هاب وارد نشده است.")
+        if (token.isBlank()) return@withContext ConnectorResult.Err("برای شناسایی کاربر توکن لازم است. برای مخزن عمومی فقط owner/repo کافی است.")
         try {
             val res = client.newCall(request("/user", token).get().build()).execute()
             val body = res.body?.string().orEmpty()
             if (!res.isSuccessful) return@withContext ConnectorResult.Err(mapError(res.code, body), res.code)
-            val login = JSONObject(body).optString("login")
-            ConnectorResult.Ok(login)
+            ConnectorResult.Ok(JSONObject(body).optString("login"))
         } catch (e: Exception) {
             ConnectorResult.Err("اتصال به گیت‌هاب برقرار نشد: ${e.localizedMessage}")
         }
     }
 
+    /** Check that a public (or accessible) repo exists. Token optional for public repos. */
+    suspend fun checkRepo(token: String, owner: String, repo: String): ConnectorResult<String> =
+        withContext(Dispatchers.IO) {
+            if (owner.isBlank() || repo.isBlank()) {
+                return@withContext ConnectorResult.Err("مالک و نام مخزن را وارد کنید.")
+            }
+            try {
+                val res = client.newCall(request("/repos/$owner/$repo", token).get().build()).execute()
+                val body = res.body?.string().orEmpty()
+                if (!res.isSuccessful) return@withContext ConnectorResult.Err(mapError(res.code, body), res.code)
+                val o = JSONObject(body)
+                val fullName = o.optString("full_name")
+                val isPrivate = o.optBoolean("private")
+                val label = if (isPrivate) "خصوصی" else "عمومی"
+                ConnectorResult.Ok("$fullName ($label)")
+            } catch (e: Exception) {
+                ConnectorResult.Err("بررسی مخزن ناموفق بود: ${e.localizedMessage}")
+            }
+        }
+
     suspend fun listRepos(token: String, query: String = ""): ConnectorResult<List<RemoteRepo>> =
         withContext(Dispatchers.IO) {
-            if (token.isBlank()) return@withContext ConnectorResult.Err("توکن گیت‌هاب وارد نشده است.")
+            if (token.isBlank()) return@withContext ConnectorResult.Err("برای فهرست مخازن شخصی توکن لازم است.")
             try {
                 val res = client.newCall(
                     request("/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator", token).get().build()
@@ -97,6 +112,7 @@ object GitHubConnector {
             }
         }
 
+    /** Read file — works without token on public repos. */
     suspend fun getFile(
         token: String,
         owner: String,
@@ -104,7 +120,6 @@ object GitHubConnector {
         path: String,
         branch: String
     ): ConnectorResult<RemoteFile?> = withContext(Dispatchers.IO) {
-        if (token.isBlank()) return@withContext ConnectorResult.Err("توکن گیت‌هاب وارد نشده است.")
         try {
             val encodedPath = path.split("/").joinToString("/") { URLEncoder.encode(it, "UTF-8") }
             val url = "$API/repos/$owner/$repo/contents/$encodedPath?ref=${URLEncoder.encode(branch, "UTF-8")}"
@@ -116,16 +131,14 @@ object GitHubConnector {
             val b64 = o.optString("content").replace("\n", "")
             val decoded = try {
                 String(Base64.decode(b64, Base64.DEFAULT), Charsets.UTF_8)
-            } catch (_: Exception) {
-                ""
-            }
+            } catch (_: Exception) { "" }
             ConnectorResult.Ok(RemoteFile(path = o.optString("path", path), sha = o.optString("sha"), content = decoded))
         } catch (e: Exception) {
             ConnectorResult.Err("خواندن فایل از گیت‌هاب ناموفق بود: ${e.localizedMessage}")
         }
     }
 
-    /** Creates or updates a file. Returns the commit URL on success. */
+    /** Write requires token always. */
     suspend fun putFile(
         token: String,
         owner: String,
@@ -135,7 +148,7 @@ object GitHubConnector {
         message: String,
         branch: String
     ): ConnectorResult<String> = withContext(Dispatchers.IO) {
-        if (token.isBlank()) return@withContext ConnectorResult.Err("توکن گیت‌هاب وارد نشده است.")
+        if (token.isBlank()) return@withContext ConnectorResult.Err("برای نوشتن در گیت‌هاب توکن لازم است.")
         try {
             val existing = getFile(token, owner, repo, path, branch)
             val sha = (existing as? ConnectorResult.Ok)?.value?.sha
@@ -162,7 +175,6 @@ object GitHubConnector {
 
     suspend fun searchCode(token: String, query: String): ConnectorResult<List<String>> =
         withContext(Dispatchers.IO) {
-            if (token.isBlank()) return@withContext ConnectorResult.Err("توکن گیت‌هاب وارد نشده است.")
             try {
                 val res = client.newCall(
                     request("/search/code?q=${URLEncoder.encode(query, "UTF-8")}", token).get().build()
