@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -34,14 +36,21 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -141,35 +150,120 @@ fun ModernChatInputBar(
     onSelectModelClick: () -> Unit,
     onPluginsClick: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .imePadding(),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 8.dp
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            IconButton(onClick = onAttachClick) { Icon(Icons.Default.PhotoLibrary, "تصویر") }
-            IconButton(onClick = onAttachFileClick) { Icon(Icons.Default.AttachFile, "فایل") }
-            IconButton(onClick = onVoiceClick) { Icon(Icons.Default.Mic, "صدا", tint = if (isListening) PersianTurquoise else MaterialTheme.colorScheme.onSurface) }
-            IconButton(onClick = onSelectModelClick) { Text(activeModelLabel, style = MaterialTheme.typography.labelSmall, color = PersianTurquoise) }
-            IconButton(onClick = onPluginsClick) { Icon(Icons.Default.Settings, "پلاگین") }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // + button with dropdown menu
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "بیشتر",
+                        tint = PersianTurquoise
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("انتخاب مدل ($activeModelLabel)") },
+                        onClick = {
+                            menuExpanded = false
+                            onSelectModelClick()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Settings, contentDescription = null)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (isListening) "در حال شنیدن..." else "ورودی صوتی") },
+                        onClick = {
+                            menuExpanded = false
+                            onVoiceClick()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = if (isListening) PersianTurquoise else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ارسال عکس") },
+                        onClick = {
+                            menuExpanded = false
+                            onAttachClick()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("ارسال فایل") },
+                        onClick = {
+                            menuExpanded = false
+                            onAttachFileClick()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.AttachFile, contentDescription = null)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("پلاگین‌ها و اتصالات") },
+                        onClick = {
+                            menuExpanded = false
+                            onPluginsClick()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Settings, contentDescription = null)
+                        }
+                    )
+                }
+            }
+
+            // Text field
             OutlinedTextField(
                 value = inputText,
                 onValueChange = onTextChanged,
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("پیام خود را بنویسید...") },
-                maxLines = 4
+                maxLines = 4,
+                shape = RoundedCornerShape(24.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = PersianTurquoise,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                )
             )
-            Spacer(modifier = Modifier.width(8.dp))
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // Send button
             IconButton(
                 onClick = onSendMessage,
                 enabled = !isLoading && (inputText.isNotBlank() || hasImages || hasFiles)
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, "ارسال", tint = PersianTurquoise)
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "ارسال",
+                    tint = if (!isLoading && (inputText.isNotBlank() || hasImages || hasFiles))
+                        PersianTurquoise
+                    else
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                )
             }
         }
     }
@@ -181,7 +275,6 @@ fun TwoWayVoiceModal(
     onSendMessage: (String, (String) -> Unit) -> Unit,
     ttsEngine: TextToSpeech?
 ) {
-    // Simplified voice modal
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("مکالمه صوتی") },
