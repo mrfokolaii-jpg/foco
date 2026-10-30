@@ -3,16 +3,10 @@ package com.example.data.connectors
 import android.content.Context
 import android.content.SharedPreferences
 
-/**
- * Persists the credentials and target settings for every external connector.
- * All values live in one SharedPreferences file so the connectors screen and the
- * background overlay service read the exact same state.
- */
 class ConnectorStore(context: Context) {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    // ---- GitHub -------------------------------------------------------------
     fun githubToken(): String = prefs.getString(K_GH_TOKEN, "").orEmpty().trim()
     fun githubOwner(): String = prefs.getString(K_GH_OWNER, DEFAULT_GH_OWNER).orEmpty().trim()
     fun githubRepo(): String = prefs.getString(K_GH_REPO, DEFAULT_GH_REPO).orEmpty().trim()
@@ -24,11 +18,9 @@ class ConnectorStore(context: Context) {
         .putString(K_GH_BRANCH, branch.trim().ifBlank { DEFAULT_GH_BRANCH })
         .apply()
 
-    // ---- Hugging Face -------------------------------------------------------
     fun hfToken(): String = prefs.getString(K_HF_TOKEN, "").orEmpty().trim()
     fun setHfToken(token: String) = prefs.edit().putString(K_HF_TOKEN, token.trim()).apply()
 
-    // ---- Cloudflare ---------------------------------------------------------
     fun cloudflareToken(): String = prefs.getString(K_CF_TOKEN, "").orEmpty().trim()
     fun cloudflareAccountId(): String = prefs.getString(K_CF_ACCOUNT_ID, "").orEmpty().trim()
     fun setCloudflare(token: String, accountId: String = "") = prefs.edit()
@@ -36,7 +28,6 @@ class ConnectorStore(context: Context) {
         .putString(K_CF_ACCOUNT_ID, accountId.trim())
         .apply()
 
-    // ---- Overlay / behaviour preferences -----------------------------------
     fun isAutoUpgradeEnabled(): Boolean = prefs.getBoolean(K_AUTO_UPGRADE, true)
     fun setAutoUpgradeEnabled(enabled: Boolean) =
         prefs.edit().putBoolean(K_AUTO_UPGRADE, enabled).apply()
@@ -50,7 +41,8 @@ class ConnectorStore(context: Context) {
         prefs.edit().putBoolean(K_OVERLAY_ENABLED, enabled).apply()
 
     fun snapshot(): ConnectorSnapshot = ConnectorSnapshot(
-        githubConfigured = githubToken().isNotBlank(),
+        // Public repo: owner + repo enough. Token only needed for private / write.
+        githubConfigured = githubOwner().isNotBlank() && githubRepo().isNotBlank(),
         huggingFaceConfigured = hfToken().isNotBlank(),
         cloudflareConfigured = cloudflareToken().isNotBlank(),
         autoUpgradeEnabled = isAutoUpgradeEnabled(),
