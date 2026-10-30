@@ -32,9 +32,7 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
     private val _uiState = MutableStateFlow(ConnectorsUiState())
     val uiState: StateFlow<ConnectorsUiState> = _uiState.asStateFlow()
 
-    init {
-        load()
-    }
+    init { load() }
 
     fun load() {
         _uiState.value = _uiState.value.copy(
@@ -66,12 +64,14 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
 
     fun testGitHub() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(busy = true, githubStatus = "در حال بررسی...")
-            val result = GitHubConnector.whoAmI(_uiState.value.githubToken)
+            val s = _uiState.value
+            _uiState.value = s.copy(busy = true, githubStatus = "در حال بررسی...")
+            // Public repo: no token needed. Private / identity: token used if present.
+            val result = GitHubConnector.checkRepo(s.githubToken, s.githubOwner, s.githubRepo)
             _uiState.value = _uiState.value.copy(
                 busy = false,
                 githubStatus = when (result) {
-                    is ConnectorResult.Ok -> "متصل ✓  (کاربر: ${result.value})"
+                    is ConnectorResult.Ok -> "متصل ✓  ${result.value}"
                     is ConnectorResult.Err -> result.message
                 }
             )
