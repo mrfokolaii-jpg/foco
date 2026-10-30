@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -87,7 +86,7 @@ fun ConnectorsScreen(
             color = MaterialTheme.colorScheme.onBackground
         )
         Text(
-            text = "فوکو را به گیت‌هاب، Hugging Face و گوگل درایو وصل کن و ویجت شناور را روشن کن.",
+            text = "فوکو را به گیت‌هاب و Hugging Face وصل کن و ویجت شناور را روشن کن.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -236,41 +235,6 @@ fun ConnectorsScreen(
                     ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
                 }
                 StatusLine(state.hfStatus)
-            }
-        }
-
-        // Google Drive
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(Icons.Default.Lock, "Google Drive — ذخیره فایل‌ها")
-                Text(
-                    text = "یا یک Access Token کوتاه‌مدت وارد کن، یا شناسه/رمز کلاینت و Refresh Token بده تا فوکو خودش توکن را تازه کند.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedTextField(
-                    value = state.driveClientId,
-                    onValueChange = { viewModel.update { s -> s.copy(driveClientId = it) } },
-                    label = { Text("Client ID") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-                SecretField("Client Secret", state.driveClientSecret) { viewModel.update { s -> s.copy(driveClientSecret = it) } }
-                SecretField("Refresh Token", state.driveRefreshToken) { viewModel.update { s -> s.copy(driveRefreshToken = it) } }
-                SecretField("Access Token (اختیاری)", state.driveAccessToken) { viewModel.update { s -> s.copy(driveAccessToken = it) } }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { viewModel.saveDrive(); viewModel.testDrive() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
-                }
-                StatusLine(state.driveStatus)
             }
         }
 
