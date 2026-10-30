@@ -434,13 +434,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun saveMessageToLibrary(message: ChatMessage) {
         viewModelScope.launch {
             val title = if (message.text.length > 40) message.text.take(38) + "..." else message.text.ifBlank { "پیام ذخیره‌شده" }
+            val preview = message.text.take(200)
             libraryDao.insertItem(
                 LibraryItemEntity(
                     id = UUID.randomUUID().toString(),
+                    folderId = null,
+                    sourceType = "CHAT_MESSAGE",
+                    sourceId = message.id,
                     title = title,
-                    content = message.text,
-                    type = "chat",
-                    createdAt = System.currentTimeMillis()
+                    previewText = preview,
+                    isPinned = false,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
                 )
             )
         }
