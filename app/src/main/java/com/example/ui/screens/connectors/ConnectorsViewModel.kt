@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.connectors.ConnectorResult
 import com.example.data.connectors.ConnectorStore
 import com.example.data.connectors.GitHubConnector
+import com.example.data.connectors.GitHubDeviceAuth
 import com.example.data.connectors.HuggingFaceConnector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,12 +18,16 @@ data class ConnectorsUiState(
     val githubOwner: String = ConnectorStore.DEFAULT_GH_OWNER,
     val githubRepo: String = ConnectorStore.DEFAULT_GH_REPO,
     val githubBranch: String = ConnectorStore.DEFAULT_GH_BRANCH,
+    val githubClientId: String = "",
     val hfToken: String = "",
     val autoUpgrade: Boolean = true,
     val continuousVoice: Boolean = true,
     val overlayRunning: Boolean = false,
     val githubStatus: String? = null,
     val hfStatus: String? = null,
+    val deviceUserCode: String? = null,
+    val deviceVerificationUri: String? = null,
+    val deviceAuthInProgress: Boolean = false,
     val busy: Boolean = false,
     val lastMessage: String? = null
 )
@@ -40,6 +45,7 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
             githubOwner = store.githubOwner(),
             githubRepo = store.githubRepo(),
             githubBranch = store.githubBranch(),
+            githubClientId = store.githubClientId(),
             hfToken = store.hfToken(),
             autoUpgrade = store.isAutoUpgradeEnabled(),
             continuousVoice = store.isContinuousVoiceEnabled(),
@@ -54,6 +60,7 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
     fun saveGitHub() {
         val s = _uiState.value
         store.setGitHub(s.githubToken, s.githubOwner, s.githubRepo, s.githubBranch)
+        store.setGitHubClientId(s.githubClientId)
         _uiState.value = s.copy(lastMessage = "تنظیمات گیت‌هاب ذخیره شد.")
     }
 
@@ -66,15 +73,85 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             val s = _uiState.value
             _uiState.value = s.copy(busy = true, githubStatus = "در حال بررسی...")
-            // Public repo: no token needed. Private / identity: token used if present.
             val result = GitHubConnector.checkRepo(s.githubToken, s.githubOwner, s.githubRepo)
             _uiState.value = _uiState.value.copy(
                 busy = false,
                 githubStatus = when (result) {
-                    is ConnectorResult.Ok -> "متصل ✓  ${result.value}"
+                    is ConnectorResult.Ok -> {
+                        val writeHint = if (s.githubToken.isBlank()) " — فقط خواندن (بدون توکن)" else " — خواندن و نوشتن"
+                        "متصل ✓  ${result.value}$writeHint"
+                    }
                     is ConnectorResult.Err -> result.message
                 }
             )
+        }
+    }
+
+    /** Start Device Flow: user approves in browser, app gets token automatically. */
+    fun startGitHubDeviceLogin() {
+        viewModelScope.launch {
+            val clientId = _uiState.value.githubClientId.ifBlank { store.githubClientId() }
+            if (clientId.isBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    githubStatus = "اول Client ID مربوط به OAuth App گیت‌هاب را وارد و ذخیره کن."
+                )
+                return@launch
+            }
+            store.setGitHubClientId(clientId)
+            _uiState.value = _uiState.value.copy(
+                deviceAuthInProgress = true,
+                githubStatus = "در حال دریافت کد دستگاه...",
+                deviceUserCode = null,
+                deviceVerificationUri = null
+            )
+            when (val codeResult = GitHubDeviceAuth.requestDeviceCode(clientId, scope = "repo")) {
+                is ConnectorResult.Err -> {
+                    _uiState.value = _uiState.value.copy(
+                        deviceAuthInProgress = false,
+                        githubStatus = codeResult.message
+                    )
+                }
+                is ConnectorResult.Ok -> {
+                    val dc = codeResult.value
+                    _uiState.value = _uiState.value.copy(
+                        deviceUserCode = dc.userCode,
+                        deviceVerificationUri = dc.verificationUri,
+                        githubStatus = "کد را در مرورگر وارد کن: ${dc.userCode}"
+                    )
+                    val tokenResult = GitHubDeviceAuth.pollForToken(
+                        clientId = clientId,
+                        deviceCode = dc.deviceCode,
+                        intervalSec = dc.intervalSec
+                    ) { attempt ->
+                        _uiState.value = _uiState.value.copy(
+                            githubStatus = "منتظر تأیید در مرورگر... ($attempt)"
+                        )
+                    }
+                    when (tokenResult) {
+                        is ConnectorResult.Ok -> {
+                            store.setGitHubToken(tokenResult.value)
+                            val s = _uiState.value
+                            store.setGitHub(tokenResult.value, s.githubOwner, s.githubRepo, s.githubBranch)
+                            _uiState.value = _uiState.value.copy(
+                                githubToken = tokenResult.value,
+                                deviceAuthInProgress = false,
+                                deviceUserCode = null,
+                                deviceVerificationUri = null,
+                                githubStatus = "متصل ✓  توکن با دسترسی repo دریافت شد",
+                                lastMessage = "ورود گیت‌هاب موفق بود. حالا می‌توانی بخوانی و بنویسی."
+                            )
+                        }
+                        is ConnectorResult.Err -> {
+                            _uiState.value = _uiState.value.copy(
+                                deviceAuthInProgress = false,
+                                deviceUserCode = null,
+                                deviceVerificationUri = null,
+                                githubStatus = tokenResult.message
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
