@@ -1,0 +1,3 @@
+Build marker: 2026-10-30
+This main branch has NO offline / GGUF / on-device model UI.
+Only Hugging Face cloud models are supported.
