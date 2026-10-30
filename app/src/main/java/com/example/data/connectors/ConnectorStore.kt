@@ -36,22 +36,6 @@ class ConnectorStore(context: Context) {
         .putString(K_CF_ACCOUNT_ID, accountId.trim())
         .apply()
 
-    // ---- Google Drive -------------------------------------------------------
-    fun driveClientId(): String = prefs.getString(K_DRIVE_CLIENT_ID, "").orEmpty().trim()
-    fun driveClientSecret(): String = prefs.getString(K_DRIVE_CLIENT_SECRET, "").orEmpty().trim()
-    fun driveRefreshToken(): String = prefs.getString(K_DRIVE_REFRESH, "").orEmpty().trim()
-    fun driveAccessToken(): String = prefs.getString(K_DRIVE_ACCESS, "").orEmpty().trim()
-    fun setDrive(clientId: String, clientSecret: String, refreshToken: String, accessToken: String) =
-        prefs.edit()
-            .putString(K_DRIVE_CLIENT_ID, clientId.trim())
-            .putString(K_DRIVE_CLIENT_SECRET, clientSecret.trim())
-            .putString(K_DRIVE_REFRESH, refreshToken.trim())
-            .putString(K_DRIVE_ACCESS, accessToken.trim())
-            .apply()
-
-    fun setDriveAccessToken(token: String) =
-        prefs.edit().putString(K_DRIVE_ACCESS, token.trim()).apply()
-
     // ---- Overlay / behaviour preferences -----------------------------------
     fun isAutoUpgradeEnabled(): Boolean = prefs.getBoolean(K_AUTO_UPGRADE, true)
     fun setAutoUpgradeEnabled(enabled: Boolean) =
@@ -69,7 +53,6 @@ class ConnectorStore(context: Context) {
         githubConfigured = githubToken().isNotBlank(),
         huggingFaceConfigured = hfToken().isNotBlank(),
         cloudflareConfigured = cloudflareToken().isNotBlank(),
-        driveConfigured = driveAccessToken().isNotBlank() || driveRefreshToken().isNotBlank(),
         autoUpgradeEnabled = isAutoUpgradeEnabled(),
         continuousVoiceEnabled = isContinuousVoiceEnabled()
     )
@@ -83,10 +66,6 @@ class ConnectorStore(context: Context) {
         private const val K_HF_TOKEN = "hf_token"
         private const val K_CF_TOKEN = "cf_token"
         private const val K_CF_ACCOUNT_ID = "cf_account_id"
-        private const val K_DRIVE_CLIENT_ID = "drive_client_id"
-        private const val K_DRIVE_CLIENT_SECRET = "drive_client_secret"
-        private const val K_DRIVE_REFRESH = "drive_refresh"
-        private const val K_DRIVE_ACCESS = "drive_access"
         private const val K_AUTO_UPGRADE = "auto_upgrade"
         private const val K_CONTINUOUS_VOICE = "continuous_voice"
         private const val K_OVERLAY_ENABLED = "overlay_enabled"
@@ -101,7 +80,6 @@ data class ConnectorSnapshot(
     val githubConfigured: Boolean = false,
     val huggingFaceConfigured: Boolean = false,
     val cloudflareConfigured: Boolean = false,
-    val driveConfigured: Boolean = false,
     val autoUpgradeEnabled: Boolean = true,
     val continuousVoiceEnabled: Boolean = true
 )
