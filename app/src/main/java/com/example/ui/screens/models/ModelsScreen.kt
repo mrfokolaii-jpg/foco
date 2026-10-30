@@ -147,12 +147,12 @@ fun ModelsScreen(
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(
-                    text = "کاتالوگ مدل‌های رایگان",
+                    text = "کاتالوگ مدل‌های Hugging Face",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "هوش مصنوعی رایگان فوکو و Hugging Face",
+                    text = "Qwen 2.5، DeepSeek R1، Llama و مدل‌های کدنویسی",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -210,25 +210,6 @@ fun ModelsScreen(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
-                FilterChip(
-                    selected = uiState.provider == null,
-                    onClick = { viewModel.onProvider(null) },
-                    label = { Text("همه پروایدرها") }
-                )
-            }
-            AiProviderKind.entries.forEach { kind ->
-                item {
-                    FilterChip(
-                        selected = uiState.provider == kind,
-                        onClick = { viewModel.onProvider(kind) },
-                        label = { Text(kind.persianTitle) }
-                    )
-                }
-            }
-        }
 
         Spacer(modifier = Modifier.height(10.dp))
         LazyColumn(
@@ -281,8 +262,7 @@ fun ModelsScreen(
                                 ) {
                                     Text(
                                         text = model.provider.persianTitle,
-                                        color = if (model.provider == AiProviderKind.HUGGINGFACE)
-                                            Color(0xFF1E1B4B) else Color.White,
+                                        color = Color(0xFF1E1B4B),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
