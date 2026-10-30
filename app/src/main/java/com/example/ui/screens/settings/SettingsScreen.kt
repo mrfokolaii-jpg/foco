@@ -67,7 +67,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class SettingsUiState(
-    val huggingFace: String = "",
+    val apiKey: String = "",
+    val baseUrl: String = ApiKeyStore.DEFAULT_BASE_URL,
+    val modelName: String = ApiKeyStore.DEFAULT_MODEL,
     val userEmail: String = "mrfokolaii@gmail.com",
     val accessibilityEnabled: Boolean = false,
     val snapshot: ApiKeySnapshot = ApiKeySnapshot()
@@ -84,20 +86,26 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun loadKeys() {
         _uiState.value = SettingsUiState(
-            huggingFace = keyStore.getHuggingFaceKey(),
+            apiKey = keyStore.getHuggingFaceKey(),
+            baseUrl = keyStore.getBaseUrl(),
+            modelName = keyStore.getModelName(),
             userEmail = keyStore.getUserEmail(),
             accessibilityEnabled = keyStore.isAccessibilityEnabled(),
             snapshot = keyStore.snapshot()
         )
     }
 
-    fun saveKeys(
-        hf: String,
+    fun saveAll(
+        apiKey: String,
+        baseUrl: String,
+        modelName: String,
         email: String,
         accessibility: Boolean
     ) {
         viewModelScope.launch {
-            keyStore.setHuggingFaceKey(hf)
+            keyStore.setHuggingFaceKey(apiKey)
+            keyStore.setBaseUrl(baseUrl)
+            keyStore.setModelName(modelName)
             keyStore.setUserEmail(email)
             keyStore.setAccessibilityEnabled(accessibility)
             loadKeys()
@@ -114,11 +122,13 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val systemAccessibilityEnabled = FokoAccessibilityService.isEnabledInSystem(context)
 
-    var hfKey by remember(uiState.huggingFace) { mutableStateOf(uiState.huggingFace) }
+    var apiKey by remember(uiState.apiKey) { mutableStateOf(uiState.apiKey) }
+    var baseUrl by remember(uiState.baseUrl) { mutableStateOf(uiState.baseUrl) }
+    var modelName by remember(uiState.modelName) { mutableStateOf(uiState.modelName) }
     var emailInput by remember(uiState.userEmail) { mutableStateOf(uiState.userEmail) }
     var accessibilityState by remember(uiState.accessibilityEnabled) { mutableStateOf(uiState.accessibilityEnabled) }
     var showAccessibilityHelpDialog by remember { mutableStateOf(false) }
-    var showHfKey by remember { mutableStateOf(false) }
+    var showApiKey by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
 
@@ -192,6 +202,7 @@ fun SettingsScreen(
             }
         }
 
+        // Status card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -204,15 +215,20 @@ fun SettingsScreen(
                     fontWeight = FontWeight.Bold,
                     color = PersianTurquoise
                 )
-
                 ProviderStatusRow(
-                    title = "Hugging Face (کیوون Qwen 2.5, DeepSeek R1)",
-                    subtitle = if (uiState.snapshot.huggingFaceConfigured) "فعال و آماده گفتگو" else "کلید وارد نشده",
+                    title = "API Key",
+                    subtitle = if (uiState.snapshot.huggingFaceConfigured) "کلید فعال است" else "کلید وارد نشده",
+                    isActive = uiState.snapshot.huggingFaceConfigured
+                )
+                ProviderStatusRow(
+                    title = "مدل: ${uiState.snapshot.modelName}",
+                    subtitle = "لینک: ${uiState.snapshot.baseUrl}",
                     isActive = uiState.snapshot.huggingFaceConfigured
                 )
             }
         }
 
+        // API Key + Base URL + Model
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -220,37 +236,60 @@ fun SettingsScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "کلید Hugging Face",
+                    text = "کلید API، لینک سایت و مدل",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
+
                 OutlinedTextField(
-                    value = hfKey,
-                    onValueChange = { hfKey = it },
-                    label = { Text("Hugging Face Token") },
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text("کلید API (API Key)") },
                     singleLine = true,
-                    visualTransformation = if (showHfKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
-                        IconButton(onClick = { showHfKey = !showHfKey }) {
-                            Text(if (showHfKey) "مخفی" else "نمایش", fontSize = 12.sp)
+                        IconButton(onClick = { showApiKey = !showApiKey }) {
+                            Text(if (showApiKey) "مخفی" else "نمایش", fontSize = 12.sp)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
+
+                OutlinedTextField(
+                    value = baseUrl,
+                    onValueChange = { baseUrl = it },
+                    label = { Text("لینک سایت / Base URL") },
+                    singleLine = true,
+                    placeholder = { Text(ApiKeyStore.DEFAULT_BASE_URL) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = modelName,
+                    onValueChange = { modelName = it },
+                    label = { Text("مدل (Model)") },
+                    singleLine = true,
+                    placeholder = { Text(ApiKeyStore.DEFAULT_MODEL) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
                 Button(
                     onClick = {
-                        viewModel.saveKeys(hfKey, emailInput, accessibilityState)
-                        Toast.makeText(context, "کلید ذخیره شد", Toast.LENGTH_SHORT).show()
+                        viewModel.saveAll(apiKey, baseUrl, modelName, emailInput, accessibilityState)
+                        Toast.makeText(context, "تنظیمات ذخیره شد", Toast.LENGTH_SHORT).show()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("ذخیره کلید", color = Color.Black, fontWeight = FontWeight.Bold)
+                    Text("ذخیره تنظیمات", color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
+        // Account / connectors
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -261,7 +300,7 @@ fun SettingsScreen(
                     Icon(Icons.Default.AccountCircle, contentDescription = null, tint = PersianTurquoise)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "حساب گوگل و یکپارچه‌سازی دسترسی‌ها",
+                        text = "حساب و اتصالات",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -270,7 +309,7 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = emailInput,
                     onValueChange = { emailInput = it },
-                    label = { Text("جیمیل متصل به کلیدها (Gmail)") },
+                    label = { Text("جیمیل (اختیاری)") },
                     trailingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = PersianTurquoise) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -284,7 +323,6 @@ fun SettingsScreen(
                 ) {
                     AccountBadge("GitHub", if (connectorSnapshot.githubConfigured) "متصل" else "قطع", connectorSnapshot.githubConfigured, modifier = Modifier.weight(1f))
                     AccountBadge("HuggingFace", if (connectorSnapshot.huggingFaceConfigured) "متصل" else "قطع", connectorSnapshot.huggingFaceConfigured, modifier = Modifier.weight(1f))
-                    AccountBadge("Google Drive", if (connectorSnapshot.driveConfigured) "متصل" else "قطع", connectorSnapshot.driveConfigured, modifier = Modifier.weight(1f))
                 }
                 Text(
                     text = "برای اتصال واقعی ابزارها به تب «ابزارها» بروید.",
@@ -294,6 +332,7 @@ fun SettingsScreen(
             }
         }
 
+        // Accessibility
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -325,7 +364,7 @@ fun SettingsScreen(
                             if (newState) {
                                 showAccessibilityHelpDialog = true
                             } else {
-                                viewModel.saveKeys(hfKey, emailInput, false)
+                                viewModel.saveAll(apiKey, baseUrl, modelName, emailInput, false)
                             }
                         },
                         colors = SwitchDefaults.colors(
