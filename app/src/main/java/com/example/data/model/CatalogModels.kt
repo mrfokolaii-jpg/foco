@@ -1,7 +1,6 @@
 package com.example.data.model
 
 enum class AiProviderKind(val persianTitle: String, val badgeColorHex: Long) {
-    BUILTIN_FREE("هوش مصنوعی رایگان فوکو", 0xFF10B981),
     HUGGINGFACE("Hugging Face", 0xFFFFD21E)
 }
 
@@ -23,16 +22,6 @@ data class CatalogModel(
 )
 
 object AiModelCatalog {
-    val builtinFree = CatalogModel(
-        id = "foko-free",
-        title = "هوش مصنوعی رایگان و عمومی فوکو",
-        subtitle = "پاسخگویی هوشمند و سریع بدون نیاز به وارد کردن هیچ کلیدی",
-        provider = AiProviderKind.BUILTIN_FREE,
-        apiModelId = "openai-large",
-        badge = "رایگان و فعال",
-        isRecommended = true
-    )
-
     val hfQwen25 = CatalogModel(
         id = "hf-qwen25",
         title = "کیوون ۷۲ میلیارد (Qwen 2.5)",
@@ -71,14 +60,13 @@ object AiModelCatalog {
     )
 
     val all: List<CatalogModel> = listOf(
-        builtinFree,
         hfQwen25,
         hfQwenCoder,
         hfDeepseekR1,
         hfLlama31
     )
 
-    fun defaultModel(): CatalogModel = builtinFree
+    fun defaultModel(): CatalogModel = hfQwen25
 
     fun findById(id: String): CatalogModel? = all.find { it.id == id }
 
