@@ -11,12 +11,17 @@ class ConnectorStore(context: Context) {
     fun githubOwner(): String = prefs.getString(K_GH_OWNER, DEFAULT_GH_OWNER).orEmpty().trim()
     fun githubRepo(): String = prefs.getString(K_GH_REPO, DEFAULT_GH_REPO).orEmpty().trim()
     fun githubBranch(): String = prefs.getString(K_GH_BRANCH, DEFAULT_GH_BRANCH).orEmpty().trim()
+    fun githubClientId(): String = prefs.getString(K_GH_CLIENT_ID, "").orEmpty().trim()
+
     fun setGitHub(token: String, owner: String, repo: String, branch: String) = prefs.edit()
         .putString(K_GH_TOKEN, token.trim())
         .putString(K_GH_OWNER, owner.trim().ifBlank { DEFAULT_GH_OWNER })
         .putString(K_GH_REPO, repo.trim().ifBlank { DEFAULT_GH_REPO })
         .putString(K_GH_BRANCH, branch.trim().ifBlank { DEFAULT_GH_BRANCH })
         .apply()
+
+    fun setGitHubToken(token: String) = prefs.edit().putString(K_GH_TOKEN, token.trim()).apply()
+    fun setGitHubClientId(clientId: String) = prefs.edit().putString(K_GH_CLIENT_ID, clientId.trim()).apply()
 
     fun hfToken(): String = prefs.getString(K_HF_TOKEN, "").orEmpty().trim()
     fun setHfToken(token: String) = prefs.edit().putString(K_HF_TOKEN, token.trim()).apply()
@@ -41,8 +46,8 @@ class ConnectorStore(context: Context) {
         prefs.edit().putBoolean(K_OVERLAY_ENABLED, enabled).apply()
 
     fun snapshot(): ConnectorSnapshot = ConnectorSnapshot(
-        // Public repo: owner + repo enough. Token only needed for private / write.
         githubConfigured = githubOwner().isNotBlank() && githubRepo().isNotBlank(),
+        githubTokenPresent = githubToken().isNotBlank(),
         huggingFaceConfigured = hfToken().isNotBlank(),
         cloudflareConfigured = cloudflareToken().isNotBlank(),
         autoUpgradeEnabled = isAutoUpgradeEnabled(),
@@ -55,6 +60,7 @@ class ConnectorStore(context: Context) {
         private const val K_GH_OWNER = "github_owner"
         private const val K_GH_REPO = "github_repo"
         private const val K_GH_BRANCH = "github_branch"
+        private const val K_GH_CLIENT_ID = "github_client_id"
         private const val K_HF_TOKEN = "hf_token"
         private const val K_CF_TOKEN = "cf_token"
         private const val K_CF_ACCOUNT_ID = "cf_account_id"
@@ -70,6 +76,7 @@ class ConnectorStore(context: Context) {
 
 data class ConnectorSnapshot(
     val githubConfigured: Boolean = false,
+    val githubTokenPresent: Boolean = false,
     val huggingFaceConfigured: Boolean = false,
     val cloudflareConfigured: Boolean = false,
     val autoUpgradeEnabled: Boolean = true,
