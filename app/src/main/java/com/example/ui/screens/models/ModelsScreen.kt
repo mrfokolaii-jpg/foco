@@ -65,7 +65,7 @@ data class ModelsUiState(
     val query: String = "",
     val capability: ModelCapability? = null,
     val provider: AiProviderKind? = null,
-    val keys: ApiKeySnapshot = ApiKeySnapshot(false, false, false, false),
+    val keys: ApiKeySnapshot = ApiKeySnapshot(),
     val models: List<CatalogModel> = AiModelCatalog.all
 )
 
@@ -152,7 +152,7 @@ fun ModelsScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Groq، Hugging Face، OpenRouter و جمینای",
+                    text = "هوش مصنوعی رایگان فوکو و Hugging Face",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
