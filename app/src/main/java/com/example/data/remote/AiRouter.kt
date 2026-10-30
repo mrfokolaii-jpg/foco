@@ -16,7 +16,6 @@ object AiRouter {
     ): ApiResult<ChatApiResponse> {
         val key = keyStore.keyFor(catalogModel.provider)
 
-        // Inject live web search if requested
         var effectiveSystemPrompt = systemInstructionText
         if (enableGoogleSearch && conversationHistory.isNotEmpty()) {
             val lastUserQuery = conversationHistory.lastOrNull { it.sender.name == "USER" }?.text.orEmpty()
@@ -29,14 +28,10 @@ object AiRouter {
         }
 
         return when (catalogModel.provider) {
-            AiProviderKind.BUILTIN_FREE -> {
-                PollinationsFreeProvider.chat(
-                    conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt
-                )
-            }
             AiProviderKind.HUGGINGFACE -> {
-                if (key.isBlank()) return PollinationsFreeProvider.chat(conversationHistory, effectiveSystemPrompt)
+                if (key.isBlank()) {
+                    return ApiResult.Error("کلید Hugging Face تنظیم نشده است. لطفاً از بخش تنظیمات کلید را وارد کنید.")
+                }
                 HuggingFaceProvider.chat(
                     apiKey = key,
                     apiModelId = catalogModel.apiModelId,
@@ -49,10 +44,6 @@ object AiRouter {
     }
 
     fun pickDefault(keyStore: ApiKeyStore): CatalogModel {
-        val snapshot = keyStore.snapshot()
-        return when {
-            snapshot.huggingFaceConfigured -> com.example.data.model.AiModelCatalog.hfQwen25
-            else -> com.example.data.model.AiModelCatalog.builtinFree
-        }
+        return com.example.data.model.AiModelCatalog.hfQwen25
     }
 }
