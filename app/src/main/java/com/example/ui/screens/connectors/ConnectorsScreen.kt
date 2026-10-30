@@ -91,7 +91,6 @@ fun ConnectorsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        // Floating widget
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -99,46 +98,30 @@ fun ConnectorsScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionHeader(Icons.Default.AutoAwesome, "ویجت شناور و مکالمه زنده")
-
                 Text(
-                    text = "راهنمای رنگ گوی: سبز = در حال شنیدن صحبت شما، قرمز = در حال تفکر، آبی = در حال پاسخ دادن.",
+                    text = "راهنمای رنگ گوی: سبز = شنیدن، قرمز = تفکر، آبی = پاسخ.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    StateDot(Color(0xFF22C55E), "شنیدن")
-                    StateDot(Color(0xFFEF4444), "تفکر")
-                    StateDot(Color(0xFF3B82F6), "پاسخ")
-                }
-
-                Text(
-                    text = "نکته: با نگه‌داشتن گوی، ویجت مخفی می‌شود و با یک ضربه دوباره ظاهر می‌گردد.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("مکالمه پیوسته صوتی (دست‌ها آزاد)", style = MaterialTheme.typography.bodyMedium)
+                    Text("مکالمه پیوسته صوتی", style = MaterialTheme.typography.bodyMedium)
                     Switch(
                         checked = state.continuousVoice,
                         onCheckedChange = { viewModel.setContinuousVoice(it) },
                         colors = SwitchDefaults.colors(checkedTrackColor = PersianTurquoise)
                     )
                 }
-
                 val canDraw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) Settings.canDrawOverlays(context) else true
                 Button(
                     onClick = {
                         if (!canDraw) {
                             context.startActivity(
-                                Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}")
-                                ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+                                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                                    .apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
                             )
                         } else if (state.overlayRunning) {
                             FokoFloatingOverlayService.stop(context)
@@ -178,11 +161,13 @@ fun ConnectorsScreen(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader(Icons.Default.Hub, "GitHub — ذخیره و ارتقای دانش")
                 Text(
-                    text = "یک توکن با دسترسی repo بساز و اینجا وارد کن. فوکو دانش جدید را در مخزن تو بارگذاری می‌کند.",
+                    text = "برای مخزن عمومی فقط owner و repo کافی است (توکن لازم نیست). توکن فقط برای مخزن خصوصی یا نوشتن لازم است.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                SecretField("توکن گیت‌هاب (ghp_...)", state.githubToken) { viewModel.update { s -> s.copy(githubToken = it) } }
+                SecretField("توکن گیت‌هاب (اختیاری برای مخزن عمومی)", state.githubToken) {
+                    viewModel.update { s -> s.copy(githubToken = it) }
+                }
                 OutlinedTextField(
                     value = state.githubOwner,
                     onValueChange = { viewModel.update { s -> s.copy(githubOwner = it) } },
@@ -207,13 +192,11 @@ fun ConnectorsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { viewModel.saveGitHub(); viewModel.testGitHub() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
-                }
+                Button(
+                    onClick = { viewModel.saveGitHub(); viewModel.testGitHub() },
+                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
+                    shape = RoundedCornerShape(10.dp)
+                ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
                 StatusLine(state.githubStatus)
             }
         }
@@ -226,14 +209,14 @@ fun ConnectorsScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader(Icons.Default.Cloud, "Hugging Face — مدل‌ها و ابزارها")
-                SecretField("توکن Hugging Face (hf_...)", state.hfToken) { viewModel.update { s -> s.copy(hfToken = it) } }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { viewModel.saveHuggingFace(); viewModel.testHuggingFace() },
-                        colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
+                SecretField("توکن Hugging Face (hf_...)", state.hfToken) {
+                    viewModel.update { s -> s.copy(hfToken = it) }
                 }
+                Button(
+                    onClick = { viewModel.saveHuggingFace(); viewModel.testHuggingFace() },
+                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
+                    shape = RoundedCornerShape(10.dp)
+                ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
                 StatusLine(state.hfStatus)
             }
         }
@@ -247,7 +230,7 @@ fun ConnectorsScreen(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionHeader(Icons.Default.Refresh, "ارتقای خودکار (Self-Upgrade)")
                 Text(
-                    text = "وقتی فوکو چیزی را نداند، خودش در وب جستجو می‌کند، یاد می‌گیرد و دانش تازه را در گیت‌هاب تو بارگذاری می‌کند.",
+                    text = "وقتی فوکو چیزی را نداند، خودش در وب جستجو می‌کند و دانش تازه را در گیت‌هاب بارگذاری می‌کند.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -269,7 +252,6 @@ fun ConnectorsScreen(
         state.lastMessage?.let {
             Text(it, style = MaterialTheme.typography.labelMedium, color = PersianTurquoise)
         }
-
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
@@ -280,15 +262,6 @@ private fun SectionHeader(icon: ImageVector, title: String) {
         Icon(icon, contentDescription = null, tint = PersianTurquoise, modifier = Modifier.size(20.dp))
         Spacer(modifier = Modifier.width(8.dp))
         Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun StateDot(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(color))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
 
