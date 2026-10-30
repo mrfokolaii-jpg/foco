@@ -7,7 +7,6 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,12 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Refresh
@@ -49,7 +46,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -82,8 +78,7 @@ fun ConnectorsScreen(
         Text(
             text = "اتصال به ابزارها و ارتقای خودکار",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
+            fontWeight = FontWeight.Bold
         )
         Text(
             text = "فوکو را به گیت‌هاب و Hugging Face وصل کن و ویجت شناور را روشن کن.",
@@ -91,6 +86,7 @@ fun ConnectorsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        // Overlay widget
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -98,11 +94,6 @@ fun ConnectorsScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SectionHeader(Icons.Default.AutoAwesome, "ویجت شناور و مکالمه زنده")
-                Text(
-                    text = "راهنمای رنگ گوی: سبز = شنیدن، قرمز = تفکر، آبی = پاسخ.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -126,11 +117,9 @@ fun ConnectorsScreen(
                         } else if (state.overlayRunning) {
                             FokoFloatingOverlayService.stop(context)
                             viewModel.setOverlayRunning(false)
-                            Toast.makeText(context, "ویجت شناور خاموش شد", Toast.LENGTH_SHORT).show()
                         } else {
                             FokoFloatingOverlayService.start(context)
                             viewModel.setOverlayRunning(true)
-                            Toast.makeText(context, "ویجت شناور روشن شد", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -159,15 +148,70 @@ fun ConnectorsScreen(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(Icons.Default.Hub, "GitHub — ذخیره و ارتقای دانش")
+                SectionHeader(Icons.Default.Hub, "GitHub — خواندن و نوشتن")
                 Text(
-                    text = "برای مخزن عمومی فقط owner و repo کافی است (توکن لازم نیست). توکن فقط برای مخزن خصوصی یا نوشتن لازم است.",
+                    text = "مخزن عمومی: فقط owner/repo برای خواندن کافی است. برای نوشتن، با دکمه زیر وارد شو (مثل همین چت).",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                SecretField("توکن گیت‌هاب (اختیاری برای مخزن عمومی)", state.githubToken) {
-                    viewModel.update { s -> s.copy(githubToken = it) }
+
+                OutlinedTextField(
+                    value = state.githubClientId,
+                    onValueChange = { viewModel.update { s -> s.copy(githubClientId = it) } },
+                    label = { Text("Client ID (OAuth App)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+                Text(
+                    text = "یک بار از github.com/settings/applications/new یک OAuth App بساز (Device Flow را فعال کن) و Client ID را اینجا بگذار.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Button(
+                    onClick = {
+                        viewModel.saveGitHub()
+                        viewModel.startGitHubDeviceLogin()
+                        state.deviceVerificationUri?.let { uri ->
+                            try {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
+                            } catch (_: Exception) {}
+                        }
+                    },
+                    enabled = !state.deviceAuthInProgress,
+                    colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        if (state.deviceAuthInProgress) "در حال اتصال..." else "ورود به GitHub (بدون وارد کردن توکن)",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
+
+                if (!state.deviceUserCode.isNullOrBlank()) {
+                    Text(
+                        text = "کد تأیید: ${state.deviceUserCode}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = PersianTurquoise
+                    )
+                    Text(
+                        text = "این کد را در صفحه گیت‌هاب وارد کن، بعد اجازه دسترسی بده.",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    state.deviceVerificationUri?.let { uri ->
+                        Button(
+                            onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        ) { Text("باز کردن صفحه تأیید") }
+                    }
+                }
+
                 OutlinedTextField(
                     value = state.githubOwner,
                     onValueChange = { viewModel.update { s -> s.copy(githubOwner = it) } },
@@ -192,11 +236,17 @@ fun ConnectorsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 )
+
+                SecretField("توکن (اگر دستی داری)", state.githubToken) {
+                    viewModel.update { s -> s.copy(githubToken = it) }
+                }
+
                 Button(
                     onClick = { viewModel.saveGitHub(); viewModel.testGitHub() },
                     colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise),
                     shape = RoundedCornerShape(10.dp)
                 ) { Text("ذخیره و بررسی", color = Color.Black, fontWeight = FontWeight.Bold) }
+
                 StatusLine(state.githubStatus)
             }
         }
@@ -208,7 +258,7 @@ fun ConnectorsScreen(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(Icons.Default.Cloud, "Hugging Face — مدل‌ها و ابزارها")
+                SectionHeader(Icons.Default.Cloud, "Hugging Face")
                 SecretField("توکن Hugging Face (hf_...)", state.hfToken) {
                     viewModel.update { s -> s.copy(hfToken = it) }
                 }
@@ -228,12 +278,7 @@ fun ConnectorsScreen(
             shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionHeader(Icons.Default.Refresh, "ارتقای خودکار (Self-Upgrade)")
-                Text(
-                    text = "وقتی فوکو چیزی را نداند، خودش در وب جستجو می‌کند و دانش تازه را در گیت‌هاب بارگذاری می‌کند.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                SectionHeader(Icons.Default.Refresh, "ارتقای خودکار")
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
