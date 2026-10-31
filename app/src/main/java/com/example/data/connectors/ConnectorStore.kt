@@ -11,7 +11,12 @@ class ConnectorStore(context: Context) {
     fun githubOwner(): String = prefs.getString(K_GH_OWNER, DEFAULT_GH_OWNER).orEmpty().trim()
     fun githubRepo(): String = prefs.getString(K_GH_REPO, DEFAULT_GH_REPO).orEmpty().trim()
     fun githubBranch(): String = prefs.getString(K_GH_BRANCH, DEFAULT_GH_BRANCH).orEmpty().trim()
-    fun githubClientId(): String = prefs.getString(K_GH_CLIENT_ID, "").orEmpty().trim()
+
+    /** Uses shipped default Client ID when user has not overridden it. */
+    fun githubClientId(): String {
+        val stored = prefs.getString(K_GH_CLIENT_ID, "")?.trim().orEmpty()
+        return stored.ifBlank { DEFAULT_GH_CLIENT_ID }
+    }
 
     fun setGitHub(token: String, owner: String, repo: String, branch: String) = prefs.edit()
         .putString(K_GH_TOKEN, token.trim())
@@ -71,6 +76,8 @@ class ConnectorStore(context: Context) {
         const val DEFAULT_GH_OWNER = "mrfokolaii-jpg"
         const val DEFAULT_GH_REPO = "foco"
         const val DEFAULT_GH_BRANCH = "main"
+        /** Public OAuth App Client ID — users only approve login, no setup. */
+        const val DEFAULT_GH_CLIENT_ID = "Ov23liD6WcFtLmYv7hZl"
     }
 }
 
