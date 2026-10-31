@@ -18,7 +18,7 @@ data class ConnectorsUiState(
     val githubOwner: String = ConnectorStore.DEFAULT_GH_OWNER,
     val githubRepo: String = ConnectorStore.DEFAULT_GH_REPO,
     val githubBranch: String = ConnectorStore.DEFAULT_GH_BRANCH,
-    val githubClientId: String = "",
+    val githubClientId: String = ConnectorStore.DEFAULT_GH_CLIENT_ID,
     val hfToken: String = "",
     val autoUpgrade: Boolean = true,
     val continuousVoice: Boolean = true,
@@ -60,7 +60,6 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
     fun saveGitHub() {
         val s = _uiState.value
         store.setGitHub(s.githubToken, s.githubOwner, s.githubRepo, s.githubBranch)
-        store.setGitHubClientId(s.githubClientId)
         _uiState.value = s.copy(lastMessage = "تنظیمات گیت‌هاب ذخیره شد.")
     }
 
@@ -78,7 +77,7 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
                 busy = false,
                 githubStatus = when (result) {
                     is ConnectorResult.Ok -> {
-                        val writeHint = if (s.githubToken.isBlank()) " — فقط خواندن (بدون توکن)" else " — خواندن و نوشتن"
+                        val writeHint = if (s.githubToken.isBlank()) " — فقط خواندن" else " — خواندن و نوشتن"
                         "متصل ✓  ${result.value}$writeHint"
                     }
                     is ConnectorResult.Err -> result.message
@@ -87,17 +86,9 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    /** Start Device Flow: user approves in browser, app gets token automatically. */
     fun startGitHubDeviceLogin() {
         viewModelScope.launch {
-            val clientId = _uiState.value.githubClientId.ifBlank { store.githubClientId() }
-            if (clientId.isBlank()) {
-                _uiState.value = _uiState.value.copy(
-                    githubStatus = "اول Client ID مربوط به OAuth App گیت‌هاب را وارد و ذخیره کن."
-                )
-                return@launch
-            }
-            store.setGitHubClientId(clientId)
+            val clientId = store.githubClientId().ifBlank { ConnectorStore.DEFAULT_GH_CLIENT_ID }
             _uiState.value = _uiState.value.copy(
                 deviceAuthInProgress = true,
                 githubStatus = "در حال دریافت کد دستگاه...",
@@ -138,7 +129,7 @@ class ConnectorsViewModel(application: Application) : AndroidViewModel(applicati
                                 deviceUserCode = null,
                                 deviceVerificationUri = null,
                                 githubStatus = "متصل ✓  توکن با دسترسی repo دریافت شد",
-                                lastMessage = "ورود گیت‌هاب موفق بود. حالا می‌توانی بخوانی و بنویسی."
+                                lastMessage = "ورود گیت‌هاب موفق بود."
                             )
                         }
                         is ConnectorResult.Err -> {
