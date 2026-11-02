@@ -154,12 +154,13 @@ fun ModernChatInputBar(
             .fillMaxWidth()
             .imePadding(),
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp
+        shadowElevation = 4.dp,
+        tonalElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box {

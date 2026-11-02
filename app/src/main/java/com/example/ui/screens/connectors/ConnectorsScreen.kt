@@ -1,9 +1,13 @@
 package com.example.ui.screens.connectors
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -21,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
@@ -145,7 +150,7 @@ fun ConnectorsScreen(
             }
         }
 
-        // GitHub — simple for end users
+        // GitHub
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -174,12 +179,34 @@ fun ConnectorsScreen(
                 }
 
                 if (!state.deviceUserCode.isNullOrBlank()) {
-                    Text(
-                        text = "کد تأیید: ${state.deviceUserCode}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = PersianTurquoise
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "کد تأیید: ${state.deviceUserCode}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = PersianTurquoise,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(
+                                    ClipData.newPlainText("GitHub device code", state.deviceUserCode)
+                                )
+                                Toast.makeText(context, "کد کپی شد", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "کپی کد",
+                                tint = PersianTurquoise
+                            )
+                        }
+                    }
                     Text(
                         text = "این کد را در صفحه گیت‌هاب وارد کن و اجازه بده.",
                         style = MaterialTheme.typography.labelSmall
@@ -190,8 +217,11 @@ fun ConnectorsScreen(
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it)))
                             }
                         },
-                        shape = RoundedCornerShape(10.dp)
-                    ) { Text("باز کردن صفحه تأیید") }
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PersianTurquoise)
+                    ) {
+                        Text("باز کردن صفحه تأیید", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 OutlinedTextField(
