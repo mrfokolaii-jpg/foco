@@ -37,6 +37,7 @@ class ApiKeyStore(context: Context) {
 
     fun keyFor(provider: AiProviderKind): String = when (provider) {
         AiProviderKind.HUGGINGFACE -> getHuggingFaceKey()
+        AiProviderKind.CUSTOM -> getHuggingFaceKey().ifBlank { getApiKey2() }
     }
 
     fun hasAnyKey(): Boolean = getHuggingFaceKey().isNotBlank() || getApiKey2().isNotBlank()
@@ -61,8 +62,9 @@ class ApiKeyStore(context: Context) {
         private const val KEY_USER_EMAIL = "user_email"
         private const val KEY_ACCESSIBILITY_ENABLED = "accessibility_enabled"
 
-        const val DEFAULT_BASE_URL = "https://router.huggingface.co/v1"
-        const val DEFAULT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+        // پیش‌فرض خالی تا دیگر Qwen به‌زور نشان داده نشود
+        const val DEFAULT_BASE_URL = ""
+        const val DEFAULT_MODEL = ""
         const val DEFAULT_BASE_URL2 = "https://api.openai.com/v1"
         const val DEFAULT_MODEL2 = "gpt-4o-mini"
     }
@@ -78,6 +80,7 @@ data class ApiKeySnapshot(
 ) {
     fun isConfigured(provider: AiProviderKind): Boolean = when (provider) {
         AiProviderKind.HUGGINGFACE -> huggingFaceConfigured
+        AiProviderKind.CUSTOM -> huggingFaceConfigured || apiKey2Configured
     }
 
     fun hasAny(): Boolean = huggingFaceConfigured || apiKey2Configured
