@@ -28,6 +28,8 @@ class ConnectorStore(context: Context) {
     fun setGitHubToken(token: String) = prefs.edit().putString(K_GH_TOKEN, token.trim()).apply()
     fun setGitHubClientId(clientId: String) = prefs.edit().putString(K_GH_CLIENT_ID, clientId.trim()).apply()
 
+    fun clearGitHubToken() = prefs.edit().remove(K_GH_TOKEN).apply()
+
     fun hfToken(): String = prefs.getString(K_HF_TOKEN, "").orEmpty().trim()
     fun setHfToken(token: String) = prefs.edit().putString(K_HF_TOKEN, token.trim()).apply()
 
@@ -51,7 +53,8 @@ class ConnectorStore(context: Context) {
         prefs.edit().putBoolean(K_OVERLAY_ENABLED, enabled).apply()
 
     fun snapshot(): ConnectorSnapshot = ConnectorSnapshot(
-        githubConfigured = githubOwner().isNotBlank() && githubRepo().isNotBlank(),
+        // فقط وقتی توکن واقعی وجود داشته باشد «متصل» حساب می‌شود
+        githubConfigured = githubToken().isNotBlank(),
         githubTokenPresent = githubToken().isNotBlank(),
         huggingFaceConfigured = hfToken().isNotBlank(),
         cloudflareConfigured = cloudflareToken().isNotBlank(),
