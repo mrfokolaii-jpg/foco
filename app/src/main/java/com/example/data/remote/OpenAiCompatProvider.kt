@@ -21,20 +21,44 @@ object ProviderHttp {
         .writeTimeout(65, TimeUnit.SECONDS)
         .build()
 
+    fun extractErrorMessage(body: String): String? {
+        return try {
+            val root = JSONObject(body)
+            val err = root.optJSONObject("error")
+            when {
+                err != null -> {
+                    val msg = err.optString("message").orEmpty()
+                    val status = err.optString("status").orEmpty()
+                    when {
+                        msg.isNotBlank() && status.isNotBlank() -> "$msg ($status)"
+                        msg.isNotBlank() -> msg
+                        else -> null
+                    }
+                }
+                else -> root.optString("message").takeIf { it.isNotBlank() }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun mapStatus(code: Int, body: String): String {
+        val detailed = extractErrorMessage(body)
+        // همیشه پیام واقعی سرور را ترجیح بده تا کاربر بفهمد مشکل چیست
+        if (!detailed.isNullOrBlank()) {
+            return when {
+                code == 401 || code == 403 -> "کلید نامعتبر: $detailed"
+                code == 404 -> "مدل یا آدرس پیدا نشد: $detailed"
+                code == 429 -> "محدودیت نرخ: $detailed"
+                else -> "خطا ($code): $detailed"
+            }
+        }
         return when (code) {
             401, 403 -> "کلید نامعتبر است یا منقضی شده. لطفاً کلید صحیح را از سایت سازنده دریافت کنید."
             404 -> "مدل انتخابی در دسترس نیست. مدل دیگری را انتخاب کنید."
             429 -> "سهمیه یا محدودیت نرخ پر شده است. لطفاً چند لحظه بعد تلاش کنید."
             in 500..599 -> "سرور هوش مصنوعی موقتاً پاسخگو نیست. لطفاً دوباره تلاش کنید."
-            else -> {
-                val parsed = try {
-                    JSONObject(body).optJSONObject("error")?.optString("message")
-                } catch (_: Exception) {
-                    null
-                }
-                parsed?.takeIf { it.isNotBlank() } ?: "خطای سرور ($code)"
-            }
+            else -> "خطای سرور ($code)"
         }
     }
 }
@@ -91,13 +115,20 @@ object OpenAiCompatProvider {
             }
             body.put("messages", messages)
 
+            val isGemini = endpoint.contains("generativelanguage.googleapis.com", ignoreCase = true)
+
             val builder = Request.Builder()
                 .url(endpoint)
                 .addHeader("Content-Type", "application/json")
                 .post(body.toString().toRequestBody(ProviderHttp.JSON))
 
             if (apiKey.isNotBlank()) {
+                // استاندارد OpenAI-compat
                 builder.addHeader("Authorization", "Bearer $apiKey")
+                // بعضی کلیدهای Gemini فقط با این هدر کار می‌کنند
+                if (isGemini) {
+                    builder.addHeader("x-goog-api-key", apiKey)
+                }
             }
             extraHeaders.forEach { (k, v) -> builder.addHeader(k, v) }
 
