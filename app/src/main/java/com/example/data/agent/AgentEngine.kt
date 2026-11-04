@@ -40,9 +40,10 @@ object AgentEngine {
             appendLine("۱. هرگز نگو «این قابلیت را ندارم»، «به عنوان مدل زبانی دسترسی ندارم» یا «در برنامه من این امکان نیست». به جای آن ابزار مناسب را اجرا کن.")
             appendLine("۲. اگر دانش کافی برای انجام کاری نداری، اول ابزار web_search را صدا بزن و صفحه‌ها را با read_web_page بخوان، سپس با harvest_knowledge دانش را در حافظه و گیت‌هاب کاربر بارگذاری کن.")
             appendLine("۳. برای اجرای یک ابزار، پاسخ را دقیقاً به این شکل بده و هیچ متن اضافه‌ای ننویس:")
-            appendLine("""<foko_tool>{"name":"نام_ابزار","args":{"کلید":"مقدار"}}</foko_tool>""")
+            appendLine("""<foko_tool>{\"name\":\"نام_ابزار\",\"args\":{\"کلید\":\"مقدار\"}}</foko_tool>""")
             appendLine("۴. در هر نوبت فقط یک ابزار را صدا بزن. بعد از دیدن نتیجه، یا ابزار بعدی را صدا بزن یا پاسخ نهایی را بده.")
             appendLine("۵. پاسخ نهایی را بدون هیچ تگی، به فارسی روان، کامل و مفید بنویس.")
+            appendLine("۶. تگ را کامل و درست بنویس: با <foko_tool> شروع و با </foko_tool> تمام شود. JSON باید معتبر باشد.")
             appendLine()
             appendLine(FokoTools.describeForPrompt())
             if (memory.isNotBlank()) {
@@ -116,22 +117,71 @@ object AgentEngine {
     }
 
     fun parseToolCall(reply: String): JSONObject? {
+        // مدل‌های ضعیف گاهی تگ را خراب می‌کنند:
+        // foko_tool>{...}</foko_tool>  یا  <foko_tool>{...  یا JSON ناقص
+        val normalized = reply
+            .replace(Regex("(?i)<\\s*foko[_-]?tool\\s*>"), "<foko_tool>")
+            .replace(Regex("(?i)</\\s*foko[_-]?tool\\s*>"), "</foko_tool>")
+            .replace(Regex("(?i)(?<!<)foko[_-]?tool\\s*>"), "<foko_tool>")
+
         val marker = "<foko_tool>"
         val endMarker = "</foko_tool>"
-        val startIdx = reply.indexOf(marker)
+        val startIdx = normalized.indexOf(marker)
         val candidate: String? = if (startIdx >= 0) {
             val bodyStart = startIdx + marker.length
-            val endIdx = reply.indexOf(endMarker, bodyStart)
-            val region = if (endIdx > bodyStart) reply.substring(bodyStart, endIdx) else reply.substring(bodyStart)
-            extractFirstJsonObject(region)
+            val endIdx = normalized.indexOf(endMarker, bodyStart)
+            val region = if (endIdx > bodyStart) normalized.substring(bodyStart, endIdx) else normalized.substring(bodyStart)
+            extractFirstJsonObject(region) ?: tryRepairJson(region)
         } else {
-            val trimmed = reply.trim()
-            if (trimmed.startsWith("{") && trimmed.contains("\"name\"")) extractFirstJsonObject(trimmed) else null
+            // بدون تگ: اگر JSON با name به نظر می‌رسد
+            val trimmed = normalized.trim()
+            if (trimmed.contains("\"name\"") || trimmed.contains("'name'")) {
+                extractFirstJsonObject(trimmed) ?: tryRepairJson(trimmed)
+            } else null
         }
         val raw = candidate ?: return null
         return try {
             val obj = JSONObject(raw)
             if (obj.optString("name").isBlank()) null else obj
+        } catch (_: Exception) {
+            // یک بار دیگر با تعمیر سعی کن
+            try {
+                val repaired = tryRepairJson(raw) ?: return null
+                val obj = JSONObject(repaired)
+                if (obj.optString("name").isBlank()) null else obj
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    /**
+     * تعمیر رایج‌ترین خرابکاری‌های مدل‌های ضعیف روی JSON ابزار.
+     * مثال:  {"name":"x",> args":{...}}  یا کوتیشن‌های تک
+     */
+    private fun tryRepairJson(text: String): String? {
+        var s = text.trim()
+        // حذف متن قبل از اولین {
+        val brace = s.indexOf('{')
+        if (brace < 0) return null
+        s = s.substring(brace)
+        // حذف متن بعد از آخرین }
+        val lastBrace = s.lastIndexOf('}')
+        if (lastBrace > 0) s = s.substring(0, lastBrace + 1)
+
+        // ,> args  →  ,"args
+        s = s.replace(Regex(",\\s*>\\s*args"), ",\"args\"")
+        s = s.replace(Regex(",\\s*>\\s*\"args\""), ",\"args\"")
+        // name بدون کوتیشن درست
+        s = s.replace(Regex("\\{\\s*name\\s*:"), "{\"name\":")
+        s = s.replace(Regex(",\\s*args\\s*:"), ",\"args\":")
+        // کوتیشن‌های تکی به دوتایی (ساده)
+        if (s.contains("'") && !s.contains("\"")) {
+            s = s.replace('\'', '"')
+        }
+        return try {
+            JSONObject(s)
+            s
         } catch (_: Exception) {
             null
         }
