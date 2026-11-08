@@ -3,6 +3,7 @@ package com.example.ui.screens.chat
 import android.speech.tts.TextToSpeech
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +24,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Mic
@@ -332,7 +332,6 @@ fun ChatDrawerContent(
 @Composable
 fun ChatMessageBubble(
     message: ChatMessage,
-    onCopy: () -> Unit,
     onSpeak: () -> Unit,
     onSaveToLibrary: () -> Unit
 ) {
@@ -348,12 +347,12 @@ fun ChatMessageBubble(
             )
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text(text = message.text)
+                // لمس طولانی روی متن → انتخاب/مارک و منوی کپی سیستم
+                SelectionContainer {
+                    Text(text = message.text)
+                }
                 if (!isUser) {
                     Row {
-                        IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
-                        }
                         IconButton(onClick = onSpeak, modifier = Modifier.size(28.dp)) {
                             Icon(Icons.Default.VolumeUp, null, modifier = Modifier.size(16.dp))
                         }
