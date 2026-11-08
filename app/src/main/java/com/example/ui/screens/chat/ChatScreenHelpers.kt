@@ -333,7 +333,8 @@ fun ChatDrawerContent(
 fun ChatMessageBubble(
     message: ChatMessage,
     onSpeak: () -> Unit,
-    onSaveToLibrary: () -> Unit
+    onSaveToLibrary: () -> Unit,
+    onCopy: () -> Unit = {}
 ) {
     val isUser = message.sender == MessageSender.USER
     Row(
@@ -347,7 +348,7 @@ fun ChatMessageBubble(
             )
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                // لمس طولانی روی متن → انتخاب/مارک و منوی کپی سیستم
+                // لمس طولانی روی متن → انتخاب/مارک و منوی کپی سیستم اندروید
                 SelectionContainer {
                     Text(text = message.text)
                 }
