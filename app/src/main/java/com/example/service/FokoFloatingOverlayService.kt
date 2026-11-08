@@ -33,7 +33,6 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -50,6 +49,7 @@ import com.example.data.model.ChatMessage
 import com.example.data.model.MessageSender
 import com.example.data.model.SystemPersona
 import com.example.data.remote.AiRouter
+import com.example.util.SpeechTextCleaner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -451,7 +451,8 @@ class FokoFloatingOverlayService : Service() {
                     if (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED) {
                         tts?.setLanguage(Locale("fa"))
                     }
-                    tts?.setSpeechRate(1.0f)
+                    tts?.setSpeechRate(0.95f)
+                    tts?.setPitch(1.0f)
                 } catch (_: Exception) {
                 }
                 ttsReady = true
@@ -477,66 +478,64 @@ class FokoFloatingOverlayService : Service() {
     }
 
     private fun initRecognizer() {
-        if (SpeechRecognizer.isRecognitionAvailable(this)) {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) return
+        try {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+                setRecognitionListener(object : RecognitionListener {
+                    override fun onReadyForSpeech(params: Bundle?) {
+                        setPhase(AgentPhase.LISTENING, "در حال شنیدن...")
+                    }
+                    override fun onBeginningOfSpeech() = Unit
+                    override fun onRmsChanged(rmsdB: Float) = Unit
+                    override fun onBufferReceived(buffer: ByteArray?) = Unit
+                    override fun onEndOfSpeech() {
+                        setPhase(AgentPhase.THINKING, "در حال تشخیص...")
+                    }
+                    override fun onError(error: Int) {
+                        setPhase(AgentPhase.IDLE)
+                    }
+                    override fun onResults(results: Bundle?) {
+                        val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        val text = matches?.firstOrNull()?.trim().orEmpty()
+                        if (text.isNotBlank()) {
+                            sendMessage(text)
+                        } else {
+                            setPhase(AgentPhase.IDLE)
+                        }
+                    }
+                    override fun onPartialResults(partialResults: Bundle?) = Unit
+                    override fun onEvent(eventType: Int, params: Bundle?) = Unit
+                })
+            }
+        } catch (_: Exception) {
         }
     }
 
-    private fun hasAudioPermission(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-
     private fun startListening() {
-        if (!hasAudioPermission()) {
-            Toast.makeText(this, "برای مکالمه صوتی، مجوز میکروفون را در برنامه فوکو فعال کنید.", Toast.LENGTH_LONG).show()
+        val r = recognizer ?: run {
+            Toast.makeText(this, "تشخیص گفتار در دسترس نیست", Toast.LENGTH_SHORT).show()
             return
         }
-        if (recognizer == null && SpeechRecognizer.isRecognitionAvailable(this)) {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        }
-        val sr = recognizer ?: run {
-            Toast.makeText(this, "سرویس تشخیص گفتار در این دستگاه در دسترس نیست.", Toast.LENGTH_LONG).show()
+        if (busy) {
+            Toast.makeText(this, "فوکو هنوز مشغول است...", Toast.LENGTH_SHORT).show()
             return
         }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fa-IR")
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-        }
-        sr.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(p: Bundle?) {
-                setPhase(AgentPhase.LISTENING, "در حال شنیدن صدای شما...")
-            }
-
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-
-            override fun onEndOfSpeech() {
-                setPhase(AgentPhase.THINKING, "در حال پردازش...")
-            }
-
-            override fun onError(error: Int) {
-                if (busy) return
-                setPhase(AgentPhase.IDLE)
-            }
-
-            override fun onResults(results: Bundle?) {
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                val spoken = matches?.firstOrNull().orEmpty().trim()
-                if (spoken.isNotBlank()) sendMessage(spoken) else setPhase(AgentPhase.IDLE)
-            }
-
-            override fun onPartialResults(partialResults: Bundle?) {
-                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                matches?.firstOrNull()?.let { statusText?.text = "«$it»" }
-            }
-
-            override fun onEvent(eventType: Int, p: Bundle?) {}
-        })
         try {
-            sr.startListening(intent)
-        } catch (_: Exception) {
+            tts?.stop()
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fa-IR")
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            }
+            setPhase(AgentPhase.LISTENING, "در حال شنیدن...")
+            r.startListening(intent)
+        } catch (e: Exception) {
             setPhase(AgentPhase.IDLE)
+            Toast.makeText(this, "شروع شنیدن ناموفق بود", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -553,8 +552,17 @@ class FokoFloatingOverlayService : Service() {
             setPhase(AgentPhase.IDLE)
             return
         }
+        val cleaned = SpeechTextCleaner.forSpeech(text)
+        if (cleaned.isBlank()) {
+            setPhase(AgentPhase.IDLE)
+            return
+        }
+        try {
+            engine.language = SpeechTextCleaner.preferredLocale(cleaned)
+        } catch (_: Exception) {
+        }
         setPhase(AgentPhase.SPEAKING, "در حال پاسخ صوتی...")
-        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "foko_reply")
+        engine.speak(cleaned, TextToSpeech.QUEUE_FLUSH, null, "foko_reply")
     }
 
     // ------------------------------------------------------------ Message ----
@@ -578,62 +586,69 @@ class FokoFloatingOverlayService : Service() {
         setPhase(AgentPhase.THINKING, "در حال تفکر و اجرای ابزارها...")
         hideKeyboard()
 
-        scope.launch(Dispatchers.IO) {
-            val keyStore = ApiKeyStore(applicationContext)
-            val model = AiRouter.pickDefault(keyStore)
-            val persona = SystemPersona.GENERAL.systemPrompt
-            val history = transcript.dropLast(1).takeLast(12)
-            val reply = AgentEngine.run(
-                context = applicationContext,
-                userText = text,
-                history = history,
-                catalogModel = model,
-                keyStore = keyStore,
-                personaPrompt = persona
-            ) { event ->
-                when (event) {
-                    is AgentEvent.Status -> mainHandler.post { setPhase(event.phase, event.message) }
-                    is AgentEvent.ToolUsed -> mainHandler.post {
-                        appendLog("ابزار ${event.name}", event.summary)
+        scope.launch {
+            try {
+                val keyStore = ApiKeyStore(applicationContext)
+                val catalog = AiRouter.pickDefault(keyStore)
+                val reply = AgentEngine.run(
+                    context = applicationContext,
+                    userText = text,
+                    history = transcript.dropLast(1),
+                    catalogModel = catalog,
+                    keyStore = keyStore,
+                    personaPrompt = SystemPersona.GENERAL.systemPrompt
+                ) { event ->
+                    when (event) {
+                        is AgentEvent.Status -> mainHandler.post {
+                            setPhase(event.phase, event.message)
+                        }
+                        is AgentEvent.ToolUsed -> mainHandler.post {
+                            setPhase(AgentPhase.THINKING, "ابزار: ${event.name}")
+                        }
+                        is AgentEvent.Failure -> mainHandler.post {
+                            setPhase(AgentPhase.ERROR, event.message)
+                        }
+                        is AgentEvent.Reply -> Unit
                     }
-                    is AgentEvent.Failure -> mainHandler.post { setPhase(AgentPhase.ERROR, event.message) }
-                    is AgentEvent.Reply -> Unit
                 }
-            }
-            transcript.add(ChatMessage(sender = MessageSender.ASSISTANT, text = reply))
-            mainHandler.post {
-                appendLog("فوکو", reply)
-                busy = false
-                speak(reply)
+                transcript.add(ChatMessage(sender = MessageSender.ASSISTANT, text = reply))
+                mainHandler.post {
+                    appendLog("فوکو", reply)
+                    speak(reply)
+                    busy = false
+                }
+            } catch (e: Exception) {
+                mainHandler.post {
+                    appendLog("فوکو", "خطا: ${e.localizedMessage}")
+                    setPhase(AgentPhase.ERROR, e.localizedMessage)
+                    busy = false
+                }
             }
         }
     }
 
-    // ------------------------------------------------------------ Lifecycle --
-
     private fun createNotification(): Notification {
-        val channelId = "foko_floating_service"
-        val channelName = "ویجت شناور فوکو"
+        val channelId = "foko_overlay"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val chan = NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_LOW)
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(chan)
+            val channel = NotificationChannel(
+                channelId, "FOKO Overlay", NotificationManager.IMPORTANCE_LOW
+            )
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
-        val pendingIntent = PendingIntent.getActivity(
+        val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, channelId)
-            .setContentTitle("دستیار شناور فوکو (FOKO AI)")
-            .setContentText("مکالمه زنده، بینایی صفحه و ابزارهای هوشمند فعال است.")
+            .setContentTitle("FOKO AI")
+            .setContentText("دستیار شناور فعال است")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(open)
             .setOngoing(true)
             .build()
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         try {
             recognizer?.destroy()
         } catch (_: Exception) {
@@ -643,86 +658,56 @@ class FokoFloatingOverlayService : Service() {
             tts?.shutdown()
         } catch (_: Exception) {
         }
+        try {
+            root?.let { windowManager?.removeView(it) }
+        } catch (_: Exception) {
+        }
         scope.cancel()
-        if (root != null) {
-            try {
-                root?.let { windowManager?.removeView(it) }
-            } catch (_: Exception) {
-            }
-        }
-        ConnectorStore(this).setOverlayEnabled(false)
-    }
-
-    /** Custom orb that pulses while FOKO is listening or speaking. */
-    class OrbView(context: Context) : View(context) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private var color: Int = AColor.parseColor("#0F766E")
-        private var pulse = 0f
-        private var animator: ValueAnimator? = null
-
-        init {
-            paint.style = Paint.Style.FILL
-        }
-
-        fun setStateColor(newColor: Int, animate: Boolean) {
-            color = newColor
-            if (animate) startPulse() else stopPulse()
-            invalidate()
-        }
-
-        private fun startPulse() {
-            if (animator?.isRunning == true) return
-            animator = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 900
-                repeatCount = ValueAnimator.INFINITE
-                repeatMode = ValueAnimator.REVERSE
-                addUpdateListener {
-                    pulse = it.animatedValue as Float
-                    invalidate()
-                }
-                start()
-            }
-        }
-
-        private fun stopPulse() {
-            animator?.cancel()
-            animator = null
-            pulse = 0f
-            invalidate()
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val cx = width / 2f
-            val cy = height / 2f
-            val base = minOf(width, height) / 2f - 4f
-            val glowRadius = base * (1f + 0.18f * pulse)
-            paint.color = color
-            paint.alpha = (60 + 80 * pulse).toInt()
-            canvas.drawCircle(cx, cy, glowRadius, paint)
-            paint.alpha = 255
-            canvas.drawCircle(cx, cy, base, paint)
-        }
+        super.onDestroy()
     }
 
     companion object {
-        private const val NOTIFICATION_ID = 2001
-        private const val ORB_SIZE_DP = 58
-        private const val HIDDEN_SIZE_DP = 26
+        private const val NOTIFICATION_ID = 4201
+        private const val ORB_SIZE_DP = 56
+        private const val HIDDEN_SIZE_DP = 22
+    }
 
-        fun start(context: Context) {
-            val intent = Intent(context, FokoFloatingOverlayService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
+    /** Custom orb that pulses while FOKO is listening or speaking. */
+    private class OrbView(context: Context) : View(context) {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = AColor.parseColor("#0F766E")
+            style = Paint.Style.FILL
+        }
+        private var pulse = false
+        private var scale = 1f
+        private var animator: ValueAnimator? = null
+
+        fun setStateColor(color: Int, animate: Boolean) {
+            paint.color = color
+            pulse = animate
+            animator?.cancel()
+            if (animate) {
+                animator = ValueAnimator.ofFloat(0.92f, 1.08f).apply {
+                    duration = 700
+                    repeatMode = ValueAnimator.REVERSE
+                    repeatCount = ValueAnimator.INFINITE
+                    addUpdateListener {
+                        scale = it.animatedValue as Float
+                        invalidate()
+                    }
+                    start()
+                }
             } else {
-                context.startService(intent)
+                scale = 1f
+                invalidate()
             }
-            ConnectorStore(context).setOverlayEnabled(true)
         }
 
-        fun stop(context: Context) {
-            context.stopService(Intent(context, FokoFloatingOverlayService::class.java))
-            ConnectorStore(context).setOverlayEnabled(false)
+        override fun onDraw(canvas: Canvas) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = (minOf(width, height) / 2f) * 0.86f * scale
+            canvas.drawCircle(cx, cy, r, paint)
         }
     }
 }
