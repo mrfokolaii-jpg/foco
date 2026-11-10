@@ -11,9 +11,10 @@ import java.util.Locale
  */
 object SpeechTextCleaner {
 
-    // Symbols that must never be spoken (user request)
+    // Symbols that must never be spoken (user request).
+    // Use raw string to avoid invalid escapes like \\- or \\&
     private val SKIP_CHARS = (
-        "¢€¥^°={}[]✓™®©%?!;:\"'*()/\\+\-&_$#@" +
+        """¢€¥^°={}[]✓™®©%?!;:"'*()/+\-&_$#@""" +
             "Δ§×÷π√·|~£‹›«»•·…—–−±≈≠≤≥∞∫∑∏∂∇" +
             "★☆✦✧❖◆◇○●□■△▲▼▽←→↑↓↔⇒⇔" +
             "`´‘’“”„‟″‴‹›«»"
@@ -52,7 +53,7 @@ object SpeechTextCleaner {
                 ch in SKIP_CHARS -> out.append(' ')
                 ch.isWhitespace() -> out.append(' ')
                 isReadableChar(ch) -> out.append(ch)
-                ch in ".,،؛:!؟…" -> out.append(ch) // keep basic punctuation for natural pauses
+                ch in ".,،؛:!؟…" -> out.append(ch)
                 else -> out.append(' ')
             }
         }
@@ -69,7 +70,7 @@ object SpeechTextCleaner {
             Character.LOWERCASE_LETTER,
             Character.TITLECASE_LETTER,
             Character.MODIFIER_LETTER,
-            Character.OTHER_LETTER, // includes Arabic/Persian letters
+            Character.OTHER_LETTER,
             Character.DECIMAL_DIGIT_NUMBER,
             Character.LETTER_NUMBER,
             Character.NON_SPACING_MARK,
