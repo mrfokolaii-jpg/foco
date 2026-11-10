@@ -25,7 +25,11 @@ class FokoAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Track screen updates
+        val e = event ?: return
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = e.packageName?.toString().orEmpty()
+            if (pkg.isNotBlank() && pkg != packageName) screenChangeListener?.invoke(pkg, e.className?.toString().orEmpty())
+        }
     }
 
     override fun onInterrupt() {
@@ -42,6 +46,37 @@ class FokoAccessibilityService : AccessibilityService() {
             private set
 
         fun isRunning(): Boolean = instance != null
+
+        /** برای حالت «توضیح زنده صفحه»: هر بار پنجره عوض شد صدا زده می‌شود. */
+        var screenChangeListener: ((packageName: String, className: String) -> Unit)? = null
+
+        /** تایپ متن در کادر فعال (یا اولین کادر نوشتنی صفحه). submit=true یعنی بعدش دکمه ارسال را هم بزن. */
+        fun typeText(text: String, submit: Boolean = false): Boolean {
+            val root = instance?.rootInActiveWindow ?: return false
+            val target = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable }
+                ?: findFirstEditable(root) ?: return false
+            target.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            }
+            val ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+            if (ok && submit) {
+                val sendLabels = listOf("ارسال", "بفرست", "Send", "send")
+                for (label in sendLabels) {
+                    if (clickNodeWithText(label)) break
+                }
+            }
+            return ok
+        }
+
+        private fun findFirstEditable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            if (node == null) return null
+            if (node.isEditable) return node
+            for (i in 0 until node.childCount) {
+                findFirstEditable(node.getChild(i))?.let { return it }
+            }
+            return null
+        }
 
         /** Checks Android's actual enabled-service setting, including after process restart. */
         fun isEnabledInSystem(context: Context): Boolean {
@@ -160,7 +195,18 @@ class FokoAccessibilityService : AccessibilityService() {
             val root = instance?.rootInActiveWindow ?: return false
             val nodes = root.findAccessibilityNodeInfosByText(targetText)
             if (!nodes.isNullOrEmpty()) {
-                return nodes.first().performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                // اولویت با تطابق دقیق؛ اگر خود گره قابل کلیک نبود، والد قابل کلیک را بزن
+                val exact = nodes.firstOrNull {
+                    it.text?.toString()?.trim().equals(targetText.trim(), true) ||
+                        it.contentDescription?.toString()?.trim().equals(targetText.trim(), true)
+                } ?: nodes.first()
+                var n: AccessibilityNodeInfo? = exact
+                while (n != null && !n.isClickable) n = n.parent
+                if (n != null && n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                // آخرین راه: زدن روی مرکز گره
+                val rect = android.graphics.Rect()
+                exact.getBoundsInScreen(rect)
+                if (!rect.isEmpty) return clickCoordinates(rect.exactCenterX(), rect.exactCenterY())
             }
             return false
         }

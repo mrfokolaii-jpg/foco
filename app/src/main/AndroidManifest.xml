@@ -122,6 +122,11 @@
             </intent-filter>
         </service>
 
+        <!-- FOKO reminders -->
+        <receiver
+            android:name=".service.ReminderReceiver"
+            android:exported="false" />
+
         <!-- FOKO Floating Overlay Service (live voice + text assistant) -->
         <service
             android:name=".service.FokoFloatingOverlayService"

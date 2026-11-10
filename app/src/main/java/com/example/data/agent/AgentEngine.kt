@@ -46,6 +46,12 @@ object AgentEngine {
             appendLine("۶. تگ را کامل و درست بنویس: با <foko_tool> شروع و با </foko_tool> تمام شود. JSON باید معتبر باشد.")
             appendLine("۷. هر وقت کاربر درباره صفحه گوشی، برنامه باز، یا «چی می‌بینی / صفحه رو ببین» پرسید، اول ابزار read_screen را اجرا کن؛ برای این کار هرگز web_search نکن.")
             appendLine("۸. وقتی نتیجه ابزار رسید، اگر کافی است، فقط پاسخ نهایی فارسی بده و ابزار را تکرار نکن.")
+            appendLine("۹. برای کار روی گوشی (باز کردن برنامه، زدن دکمه، نوشتن پیام) مرحله به مرحله پیش برو: open_app، بعد read_screen، بعد tap_text یا type_text، و بعد از هر کار دوباره read_screen.")
+            appendLine("۱۰. قبل از فرستادن هر پیام یا جواب به اسم کاربر (reply_notification یا type_text با submit)، متن را به کاربر بگو و فقط بعد از تأیید صریحش بفرست.")
+            appendLine("۱۱. برای یادآور و تقویم، تاریخ شمسی را خودت به میلادی تبدیل کن و در قالب 2026-11-12 08:00 بده.")
+            appendLine("۱۲. اگر ابزار بومی (function calling) در دسترس است از همان استفاده کن؛ در غیر این صورت از تگ foko_tool.")
+            appendLine()
+            appendLine(com.example.util.PersianDate.nowLine())
             appendLine()
             appendLine(FokoTools.describeForPrompt())
             if (memory.isNotBlank()) {
@@ -64,8 +70,13 @@ object AgentEngine {
         personaPrompt: String,
         enableThinkingMode: Boolean = false,
         enableGoogleSearch: Boolean = false,
+        /** تکه‌های متن پاسخ نهایی، همان لحظه که می‌رسند (برای خواندن سریع‌تر). */
+        onDelta: ((String) -> Unit)? = null,
         onEvent: (AgentEvent) -> Unit = {}
     ): String {
+        val voicePrefs = com.example.data.local.VoicePrefs(context)
+        val tools = if (voicePrefs.nativeToolsEnabled) FokoTools.toolDeclarations() else null
+        val streamTo = if (voicePrefs.streamingEnabled) onDelta else null
         val systemPrompt = buildSystemPrompt(context, personaPrompt, userText)
         val working = history.toMutableList()
         working.add(ChatMessage(sender = MessageSender.USER, text = userText))
@@ -84,7 +95,9 @@ object AgentEngine {
                 systemInstructionText = systemPrompt,
                 keyStore = keyStore,
                 enableThinkingMode = enableThinkingMode,
-                enableGoogleSearch = enableGoogleSearch
+                enableGoogleSearch = enableGoogleSearch,
+                tools = tools,
+                onDelta = streamTo?.let { sink -> deltaFilter(sink) }
             )
             when (result) {
                 is ApiResult.Error -> {
@@ -96,7 +109,7 @@ object AgentEngine {
                     if (isEmptyReply(reply)) {
                         // مدل جواب خالی یا «null» داد؛ یک بار دیگر تلاش کن
                         emptyRetries++
-                        if (emptyRetries <= 1) { step++; continue }
+                        if (emptyRetries <= 1) continue
                         val msg = "متأسفم، مدل جوابی نداد. لطفاً دوباره بگو یا مدل دیگری انتخاب کن."
                         onEvent(AgentEvent.Reply(msg))
                         return msg
@@ -136,6 +149,32 @@ object AgentEngine {
         }
         onEvent(AgentEvent.Reply(fallback))
         return fallback
+    }
+
+    /**
+     * تکه‌ها را فقط وقتی جلو می‌فرستد که مطمئن باشد متن عادی است، نه تگ ابزار؛
+     * تا متن خام ابزار هیچ‌وقت خوانده نشود.
+     */
+    private fun deltaFilter(sink: (String) -> Unit): (String) -> Unit {
+        val buffer = StringBuilder()
+        var decided = false
+        var isTool = false
+        return { piece ->
+            if (!isTool) {
+                if (decided) {
+                    if (piece.contains("foko", true) || piece.contains("<")) isTool = true else sink(piece)
+                } else {
+                    buffer.append(piece)
+                    val t = buffer.toString().trimStart()
+                    if (t.contains("foko", true) || t.startsWith("<") || t.startsWith("{")) {
+                        isTool = true
+                    } else if (t.length >= 16) {
+                        decided = true
+                        sink(buffer.toString())
+                    }
+                }
+            }
+        }
     }
 
     private fun isEmptyReply(reply: String): Boolean {

@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.util.FokoProxy.install(applicationContext)
         openTwoWayVoice.value = intent?.getBooleanExtra(EXTRA_OPEN_TWO_WAY_VOICE, false) == true
         enableEdgeToEdge()
 

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeUp
@@ -142,6 +143,7 @@ fun ModernChatInputBar(
     hasFiles: Boolean,
     onSendMessage: () -> Unit,
     onAttachClick: () -> Unit,
+    onCameraClick: () -> Unit = {},
     onAttachFileClick: () -> Unit,
     onVoiceClick: () -> Unit,
     onSelectModelClick: () -> Unit,
@@ -204,6 +206,14 @@ fun ModernChatInputBar(
                             onAttachClick()
                         },
                         leadingIcon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("عکس با دوربین (خواندن متن و توضیح)") },
+                        onClick = {
+                            menuExpanded = false
+                            onCameraClick()
+                        },
+                        leadingIcon = { Icon(Icons.Default.PhotoCamera, contentDescription = null) }
                     )
                     DropdownMenuItem(
                         text = { Text("ارسال فایل") },

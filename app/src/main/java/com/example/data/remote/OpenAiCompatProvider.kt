@@ -71,11 +71,20 @@ object OpenAiCompatProvider {
         catalogId: String,
         conversationHistory: List<ChatMessage>,
         systemInstructionText: String,
-        extraHeaders: Map<String, String> = emptyMap()
+        extraHeaders: Map<String, String> = emptyMap(),
+        /** تعریف ابزارها برای فراخوانی بومی (OpenAI tools). null یعنی بدون ابزار بومی. */
+        tools: JSONArray? = null,
+        /** اگر داده شود، پاسخ به صورت استریم می‌آید و هر تکه متن به این تابع داده می‌شود. */
+        onDelta: ((String) -> Unit)? = null
     ): ApiResult<ChatApiResponse> = withContext(Dispatchers.IO) {
         try {
             val body = JSONObject()
             body.put("model", apiModelId)
+            if (tools != null && tools.length() > 0) {
+                body.put("tools", tools)
+                body.put("tool_choice", "auto")
+            }
+            if (onDelta != null) body.put("stream", true)
 
             val messages = JSONArray()
             if (systemInstructionText.isNotBlank()) {
@@ -133,19 +142,35 @@ object OpenAiCompatProvider {
             extraHeaders.forEach { (k, v) -> builder.addHeader(k, v) }
 
             val response = ProviderHttp.client.newCall(builder.build()).execute()
-            val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                return@withContext ApiResult.Error(ProviderHttp.mapStatus(response.code, responseBody))
+                val errBody = response.body?.string().orEmpty()
+                response.close()
+                // بعضی مدل‌ها ابزار بومی یا استریم را پشتیبانی نمی‌کنند؛ یک بار بدون آن‌ها تلاش کن
+                if (response.code in 400..422 && (tools != null || onDelta != null)) {
+                    return@withContext chat(
+                        endpoint, apiKey, apiModelId, catalogId, conversationHistory,
+                        systemInstructionText, extraHeaders, tools = null, onDelta = null
+                    )
+                }
+                return@withContext ApiResult.Error(ProviderHttp.mapStatus(response.code, errBody))
             }
 
-            val json = JSONObject(responseBody)
-            val choices = json.optJSONArray("choices")
-            if (choices == null || choices.length() == 0) {
-                return@withContext ApiResult.Error("پاسخی از مدل هوش مصنوعی دریافت نشد.")
+            val text: String = if (onDelta != null) {
+                readStream(response, onDelta)
+            } else {
+                val responseBody = response.body?.string().orEmpty()
+                val json = JSONObject(responseBody)
+                val choices = json.optJSONArray("choices")
+                if (choices == null || choices.length() == 0) {
+                    return@withContext ApiResult.Error("پاسخی از مدل هوش مصنوعی دریافت نشد.")
+                }
+                val message = choices.getJSONObject(0).optJSONObject("message")
+                val toolText = message?.optJSONArray("tool_calls")?.let { toolCallsToTag(it) }.orEmpty()
+                // optString برای مقدار null کلمه "null" برمی‌گرداند؛ این همان جواب «null» بود
+                val content = if (message == null || message.isNull("content")) "" else message.optString("content")
+                (toolText.ifBlank { content }).trim()
             }
-            val message = choices.getJSONObject(0).optJSONObject("message")
-            val text = message?.optString("content").orEmpty().trim()
-            if (text.isBlank()) {
+            if (text.isBlank() || text.equals("null", ignoreCase = true)) {
                 return@withContext ApiResult.Error("پاسخی از مدل هوش مصنوعی دریافت نشد.")
             }
             ApiResult.Success(
@@ -160,6 +185,57 @@ object OpenAiCompatProvider {
             ApiResult.Error("اتصال اینترنت برقرار نشد: ${e.localizedMessage ?: "خطای شبکه"}")
         }
     }
+}
+
+/** تبدیل tool_calls استاندارد به تگ متنی فوکو تا موتور عامل بدون تغییر کار کند. */
+internal fun toolCallsToTag(calls: JSONArray): String {
+    if (calls.length() == 0) return ""
+    val fn = calls.optJSONObject(0)?.optJSONObject("function") ?: return ""
+    val name = fn.optString("name")
+    if (name.isBlank()) return ""
+    val args = try { JSONObject(fn.optString("arguments").ifBlank { "{}" }) } catch (_: Exception) { JSONObject() }
+    return "<foko_tool>" + JSONObject().put("name", name).put("args", args).toString() + "</foko_tool>"
+}
+
+/** خواندن پاسخ استریم (SSE) و جمع کردن متن و فراخوانی ابزار. */
+private fun readStream(response: okhttp3.Response, onDelta: (String) -> Unit): String {
+    val content = StringBuilder()
+    var toolName = ""
+    val toolArgs = StringBuilder()
+    val source = response.body?.source() ?: return ""
+    try {
+        while (!source.exhausted()) {
+            val line = source.readUtf8Line() ?: break
+            if (!line.startsWith("data:")) continue
+            val data = line.removePrefix("data:").trim()
+            if (data == "[DONE]") break
+            val json = try { JSONObject(data) } catch (_: Exception) { continue }
+            val delta = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta") ?: continue
+            if (!delta.isNull("content")) {
+                val piece = delta.optString("content")
+                if (piece.isNotEmpty()) {
+                    content.append(piece)
+                    onDelta(piece)
+                }
+            }
+            val calls = delta.optJSONArray("tool_calls")
+            if (calls != null && calls.length() > 0) {
+                val fn = calls.optJSONObject(0)?.optJSONObject("function")
+                if (fn != null) {
+                    val n = fn.optString("name")
+                    if (n.isNotBlank() && toolName.isBlank()) toolName = n
+                    if (!fn.isNull("arguments")) toolArgs.append(fn.optString("arguments"))
+                }
+            }
+        }
+    } finally {
+        try { response.close() } catch (_: Exception) {}
+    }
+    if (toolName.isNotBlank()) {
+        val args = try { JSONObject(toolArgs.toString().ifBlank { "{}" }) } catch (_: Exception) { JSONObject() }
+        return "<foko_tool>" + JSONObject().put("name", toolName).put("args", args).toString() + "</foko_tool>"
+    }
+    return content.toString()
 }
 
 object HuggingFaceProvider {

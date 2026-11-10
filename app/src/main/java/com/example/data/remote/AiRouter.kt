@@ -12,7 +12,9 @@ object AiRouter {
         systemInstructionText: String,
         keyStore: ApiKeyStore,
         enableThinkingMode: Boolean = false,
-        enableGoogleSearch: Boolean = false
+        enableGoogleSearch: Boolean = false,
+        tools: org.json.JSONArray? = null,
+        onDelta: ((String) -> Unit)? = null
     ): ApiResult<ChatApiResponse> {
         var effectiveSystemPrompt = systemInstructionText
         if (enableGoogleSearch && conversationHistory.isNotEmpty()) {
@@ -31,12 +33,15 @@ object AiRouter {
                 if (key.isBlank()) {
                     return ApiResult.Error("کلید API تنظیم نشده است. لطفاً از بخش تنظیمات کلید را وارد کنید.")
                 }
-                HuggingFaceProvider.chat(
+                OpenAiCompatProvider.chat(
+                    endpoint = "https://router.huggingface.co/v1/chat/completions",
                     apiKey = key,
                     apiModelId = catalogModel.apiModelId,
                     catalogId = catalogModel.id,
                     conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt
+                    systemInstructionText = effectiveSystemPrompt,
+                    tools = tools,
+                    onDelta = onDelta
                 )
             }
             AiProviderKind.CUSTOM -> {
@@ -63,7 +68,9 @@ object AiRouter {
                     apiModelId = modelId,
                     catalogId = catalogModel.id,
                     conversationHistory = conversationHistory,
-                    systemInstructionText = effectiveSystemPrompt
+                    systemInstructionText = effectiveSystemPrompt,
+                    tools = tools,
+                    onDelta = onDelta
                 )
             }
         }

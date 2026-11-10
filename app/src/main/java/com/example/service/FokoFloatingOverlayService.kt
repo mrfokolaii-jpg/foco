@@ -49,6 +49,11 @@ import com.example.data.model.MessageSender
 import com.example.data.model.SystemPersona
 import com.example.data.remote.AiRouter
 import com.example.util.SpeechTextCleaner
+import com.example.util.FokoProxy
+import com.example.data.local.VoicePrefs
+import com.example.voice.BargeInDetector
+import com.example.voice.NaturalTts
+import com.example.voice.VoskEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -89,16 +94,37 @@ class FokoFloatingOverlayService : Service() {
     private var conversationPaused = false
     private var silentErrors = 0
 
+    private lateinit var voicePrefs: VoicePrefs
+    private var bargeIn: BargeInDetector? = null
+    private var listeningOffline = false
+
+    // صف گفتار برای خواندن جمله به جمله
+    private var pendingUtterances = 0
+    private var finalQueued = false
+    private var utteranceCounter = 0
+    private val sentenceBuffer = StringBuilder()
+    private var streamedText = StringBuilder()
+
+    // توضیح زنده صفحه
+    private val liveExplainRunnable = Runnable { runLiveExplain() }
+    private var lastExplainedPackage = ""
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        FokoProxy.install(applicationContext)
+        voicePrefs = VoicePrefs(applicationContext)
+        bargeIn = BargeInDetector(applicationContext)
         startForeground(NOTIFICATION_ID, createNotification())
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         buildUi()
         initTts()
         initRecognizer()
         appendLog("فوکو", "سلام! من فوکو هستم. میکروفون را بزن و صحبت کن یا بنویس.")
+        registerScreenListener()
+        registerNotificationListener()
+        mainHandler.postDelayed({ startWakeWordIfIdle() }, 800)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -107,6 +133,7 @@ class FokoFloatingOverlayService : Service() {
             ACTION_PAUSE -> pauseConversation()
             ACTION_RESUME -> resumeConversation()
             ACTION_END -> endConversation()
+            ACTION_REFRESH_SETTINGS -> { registerScreenListener(); startWakeWordIfIdle() }
         }
         return START_STICKY
     }
@@ -129,6 +156,7 @@ class FokoFloatingOverlayService : Service() {
         try { tts?.stop() } catch (_: Exception) {}
         setPhase(AgentPhase.IDLE, "مکث")
         refreshNotification()
+        startWakeWordIfIdle()
     }
 
     private fun resumeConversation() {
@@ -143,9 +171,89 @@ class FokoFloatingOverlayService : Service() {
         conversationMode = false
         conversationPaused = false
         stopListening()
-        try { tts?.stop() } catch (_: Exception) {}
+        stopSpeaking()
         setPhase(AgentPhase.IDLE)
         refreshNotification()
+        startWakeWordIfIdle()
+    }
+
+    // ───────── کلمه بیداری «فوکو» ─────────
+
+    private fun startWakeWordIfIdle() {
+        if (!voicePrefs.wakeWordEnabled) { if (!listeningOffline) VoskEngine.stop(); return }
+        if (conversationMode && !conversationPaused) return
+        if (busy || phase == AgentPhase.SPEAKING || phase == AgentPhase.LISTENING) return
+        if (!VoskEngine.isModelReady(applicationContext)) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        VoskEngine.startWakeWord(applicationContext, onWake = {
+            appendLog("فوکو", "جانم؟")
+            startConversation()
+        }, onError = { mainHandler.postDelayed({ startWakeWordIfIdle() }, 5000) })
+    }
+
+    // ───────── توضیح زنده صفحه ─────────
+
+    private fun registerScreenListener() {
+        if (!voicePrefs.liveExplainEnabled) {
+            FokoAccessibilityService.screenChangeListener = null
+            return
+        }
+        FokoAccessibilityService.screenChangeListener = { pkg: String, _: String ->
+            mainHandler.post {
+                if (pkg != lastExplainedPackage) {
+                    mainHandler.removeCallbacks(liveExplainRunnable)
+                    pendingExplainPackage = pkg
+                    mainHandler.postDelayed(liveExplainRunnable, 2500)
+                }
+            }
+        }
+    }
+
+    private var pendingExplainPackage = ""
+
+    private fun runLiveExplain() {
+        if (!voicePrefs.liveExplainEnabled || busy || phase == AgentPhase.LISTENING || phase == AgentPhase.SPEAKING) return
+        lastExplainedPackage = pendingExplainPackage
+        sendMessage(
+            "صفحه گوشی عوض شد. با ابزار read_screen صفحه را ببین و در حداکثر دو جمله کوتاه بگو روی صفحه چه چیزی هست و اگر متن خارجی است ترجمه کن.",
+            showInLog = false
+        )
+    }
+
+    private fun toggleLiveExplain() {
+        voicePrefs.liveExplainEnabled = !voicePrefs.liveExplainEnabled
+        registerScreenListener()
+        val msg = if (voicePrefs.liveExplainEnabled) "توضیح زنده صفحه روشن شد" else "توضیح زنده صفحه خاموش شد"
+        appendLog("فوکو", msg)
+        if (voicePrefs.liveExplainEnabled && !FokoAccessibilityService.isRunning()) {
+            appendLog("فوکو", "برای این کار باید سرویس دسترسی‌پذیری فوکو روشن باشد.")
+        }
+    }
+
+    // ───────── خواندن پیام‌های تازه ─────────
+
+    private val messagingPackages = setOf(
+        "org.telegram.messenger", "org.telegram.plus", "org.thunderdog.challegram", "com.whatsapp", "com.whatsapp.w4b",
+        "com.google.android.apps.messaging", "com.samsung.android.messaging", "com.android.mms",
+        "ir.eitaa.messenger", "ir.nasim", "mobi.mmdt.ottplus", "com.instagram.android", "com.bale.messenger"
+    )
+
+    private fun registerNotificationListener() {
+        FokoNotificationListener.listener = { n ->
+            mainHandler.post {
+                if (conversationMode && !conversationPaused && !busy &&
+                    phase != AgentPhase.SPEAKING && n.packageName in messagingPackages
+                ) {
+                    val app = FokoNotificationListener.appLabel(n.packageName)
+                    val line = "پیام تازه در $app از ${n.title}: ${n.text.take(200)}. می‌خوای جواب بدی؟"
+                    stopListening()
+                    appendLog("فوکو", line)
+                    transcript.add(ChatMessage(sender = MessageSender.ASSISTANT, text = line))
+                    beginReplySpeech()
+                    speakChunk(line, isFinal = true)
+                }
+            }
+        }
     }
 
     /** بعد از جواب یا سکوت، اگر مکالمه فعال است دوباره گوش بده. */
@@ -223,7 +331,10 @@ class FokoFloatingOverlayService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     val held = System.currentTimeMillis() - downTime
-                    if (!moved) { if (held > 550) toggleHidden() else togglePanel() } else snapToEdge()
+                    if (!moved) {
+                        if (phase == AgentPhase.SPEAKING) interruptAndListen()
+                        else if (held > 550) toggleHidden() else togglePanel()
+                    } else snapToEdge()
                     mainHandler.postDelayed({ isDragging = false }, 80); true
                 }
                 else -> false
@@ -271,6 +382,8 @@ class FokoFloatingOverlayService : Service() {
         quick.addView(chip("صفحه") { sendMessage("محتوای همین صفحه را بخوان و تحلیل کن") })
         quick.addView(chip("مرورگر") { sendMessage("آخرین خبرهای مهم امروز را از وب جستجو کن") })
         quick.addView(chip("گیت‌هاب") { sendMessage("وضعیت اتصال گیت‌هاب من را بررسی کن") })
+        quick.addView(chip("توضیح زنده") { toggleLiveExplain() })
+        quick.addView(chip("اعلان‌ها") { sendMessage("اعلان‌ها و پیام‌های تازه گوشی را بخوان و خلاصه کن") })
         p.addView(quick)
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0)
@@ -413,16 +526,9 @@ class FokoFloatingOverlayService : Service() {
                 ttsReady = true
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) = Unit
-                    override fun onDone(utteranceId: String?) {
-                        mainHandler.post {
-                            if (conversationMode && !conversationPaused) {
-                                setPhase(AgentPhase.LISTENING, "دوباره گوش می‌دهم..."); continueConversationIfActive()
-                            } else if (ConnectorStore(applicationContext).isContinuousVoiceEnabled() && expanded) {
-                                setPhase(AgentPhase.LISTENING, "دوباره گوش می‌دهم..."); startListening()
-                            } else setPhase(AgentPhase.IDLE)
-                        }
-                    }
-                    override fun onError(utteranceId: String?) { mainHandler.post { setPhase(AgentPhase.IDLE) } }
+                    override fun onDone(utteranceId: String?) { mainHandler.post { onUtteranceFinished() } }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) { mainHandler.post { onUtteranceFinished() } }
                 })
             }
         }
@@ -465,10 +571,17 @@ class FokoFloatingOverlayService : Service() {
     }
 
     private fun startListening() {
-        val r = recognizer ?: run { Toast.makeText(this, "تشخیص گفتار در دسترس نیست", Toast.LENGTH_SHORT).show(); return }
         if (busy) { Toast.makeText(this, "فوکو هنوز مشغول است...", Toast.LENGTH_SHORT).show(); return }
+        stopSpeaking()
+        VoskEngine.stop()
+        if (voicePrefs.offlineSttEnabled && VoskEngine.isModelReady(applicationContext)) {
+            startOfflineListening(); return
+        }
+        val r = recognizer ?: run {
+            if (VoskEngine.isModelReady(applicationContext)) { startOfflineListening(); return }
+            Toast.makeText(this, "تشخیص گفتار در دسترس نیست", Toast.LENGTH_SHORT).show(); return
+        }
         try {
-            tts?.stop()
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fa-IR")
@@ -480,16 +593,158 @@ class FokoFloatingOverlayService : Service() {
         }
     }
 
-    private fun stopListening() { try { recognizer?.stopListening() } catch (_: Exception) {} }
+    private fun stopListening() {
+        try { recognizer?.cancel() } catch (_: Exception) {}
+        if (listeningOffline) { listeningOffline = false; VoskEngine.stop() }
+    }
 
+    /** تشخیص آفلاین فارسی با Vosk (بدون گوگل و بدون اینترنت). */
+    private fun startOfflineListening() {
+        listeningOffline = true
+        setPhase(AgentPhase.LISTENING, "در حال شنیدن (آفلاین)...")
+        val ok = VoskEngine.recognizeOnce(
+            applicationContext,
+            onPartial = { partial -> statusText?.text = partial.takeLast(40) },
+            onResult = { text ->
+                listeningOffline = false
+                if (text.isNotBlank()) { silentErrors = 0; sendMessage(text) }
+                else {
+                    setPhase(AgentPhase.IDLE)
+                    if (conversationMode && !conversationPaused) {
+                        silentErrors++
+                        if (silentErrors >= MAX_SILENT_RETRIES) {
+                            appendLog("فوکو", "صدایی نشنیدم؛ مکالمه مکث شد. از اعلان «ادامه» را بزن.")
+                            pauseConversation()
+                        } else continueConversationIfActive()
+                    } else startWakeWordIfIdle()
+                }
+            },
+            onError = { msg ->
+                listeningOffline = false
+                setPhase(AgentPhase.ERROR, msg)
+                if (conversationMode && !conversationPaused) { silentErrors += 2; continueConversationIfActive(1000) }
+            }
+        )
+        if (!ok) listeningOffline = false
+    }
+
+    // ───────── گفتار: صدای گوشی یا صدای طبیعی، جمله به جمله، با قابلیت قطع کردن ─────────
+
+    /** آماده‌سازی برای یک پاسخ تازه. */
+    private fun beginReplySpeech() {
+        stopSpeaking()
+        pendingUtterances = 0
+        finalQueued = false
+        sentenceBuffer.setLength(0)
+        streamedText = StringBuilder()
+    }
+
+    private fun stopSpeaking() {
+        try { tts?.stop() } catch (_: Exception) {}
+        NaturalTts.stop()
+        bargeIn?.stop()
+        pendingUtterances = 0
+        finalQueued = false
+    }
+
+    /** تکه‌های استریم را جمع می‌کند و هر جمله کامل را همان لحظه می‌خواند. */
+    private fun onStreamDelta(piece: String) {
+        if (voicePrefs.naturalVoiceEnabled) return // صدای طبیعی کل جواب را یکجا می‌سازد
+        streamedText.append(piece)
+        sentenceBuffer.append(piece)
+        val text = sentenceBuffer.toString()
+        val cut = text.indexOfLast { it == '.' || it == '!' || it == '?' || it == '؟' || it == '\n' || it == '؛' }
+        if (cut >= 0 && cut >= 12) {
+            val sentence = text.substring(0, cut + 1)
+            sentenceBuffer.delete(0, cut + 1)
+            speakChunk(sentence, isFinal = false)
+        }
+    }
+
+    /** خواندن کل پاسخ نهایی (یا باقی‌مانده‌ای که هنوز خوانده نشده). */
     private fun speak(text: String) {
+        val alreadyStreamed = streamedText.toString()
+        // اگر جواب استریم شده، فقط بخشی که هنوز خوانده نشده را بخوان (بدون تکرار)
+        val remaining = if (alreadyStreamed.isBlank()) text else sentenceBuffer.toString()
+        sentenceBuffer.setLength(0)
+        if (voicePrefs.naturalVoiceEnabled && NaturalTts.isAvailable(ApiKeyStore(applicationContext))) {
+            speakNatural(text)
+        } else {
+            speakChunk(remaining, isFinal = true)
+        }
+    }
+
+    private fun speakChunk(text: String, isFinal: Boolean) {
         val engine = tts
-        if (engine == null || !ttsReady) { setPhase(AgentPhase.IDLE); continueConversationIfActive(); return }
         val cleaned = SpeechTextCleaner.forSpeech(text)
-        if (cleaned.isBlank()) { setPhase(AgentPhase.IDLE); continueConversationIfActive(); return }
+        if (engine == null || !ttsReady || cleaned.isBlank()) {
+            if (isFinal) {
+                finalQueued = true
+                if (pendingUtterances <= 0) { finalQueued = false; afterSpeech() }
+            }
+            return
+        }
         try { engine.language = SpeechTextCleaner.preferredLocale(cleaned) } catch (_: Exception) {}
-        setPhase(AgentPhase.SPEAKING, "در حال پاسخ صوتی...")
-        engine.speak(cleaned, TextToSpeech.QUEUE_FLUSH, null, "foko_reply")
+        if (phase != AgentPhase.SPEAKING) {
+            setPhase(AgentPhase.SPEAKING, "در حال پاسخ صوتی...")
+            startBargeIn()
+        }
+        pendingUtterances++
+        if (isFinal) finalQueued = true
+        engine.speak(cleaned, TextToSpeech.QUEUE_ADD, null, "foko_${utteranceCounter++}")
+    }
+
+    private fun onUtteranceFinished() {
+        pendingUtterances = maxOf(0, pendingUtterances - 1)
+        if (pendingUtterances == 0 && finalQueued) {
+            finalQueued = false
+            afterSpeech()
+        }
+    }
+
+    private fun speakNatural(text: String) {
+        val cleaned = SpeechTextCleaner.forSpeech(text)
+        if (cleaned.isBlank()) { afterSpeech(); return }
+        setPhase(AgentPhase.SPEAKING, "در حال ساخت صدا...")
+        scope.launch {
+            val file = NaturalTts.synthesize(applicationContext, cleaned)
+            if (file == null) {
+                // اگر صدای طبیعی نشد، با صدای گوشی بخوان
+                speakChunk(cleaned, isFinal = true)
+                return@launch
+            }
+            setPhase(AgentPhase.SPEAKING, "در حال پاسخ صوتی...")
+            startBargeIn()
+            NaturalTts.play(file) { mainHandler.post { afterSpeech() } }
+        }
+    }
+
+    private fun startBargeIn() {
+        if (!voicePrefs.bargeInEnabled || !conversationMode || conversationPaused) return
+        bargeIn?.start { interruptAndListen() }
+    }
+
+    /** کاربر وسط حرف فوکو صحبت کرد یا روی دایره زد: ساکت شو و گوش بده. */
+    private fun interruptAndListen() {
+        stopSpeaking()
+        setPhase(AgentPhase.LISTENING, "گوش می‌دهم...")
+        mainHandler.postDelayed({ if (!busy) startListening() }, 350)
+    }
+
+    /** بعد از تمام شدن گفتار. */
+    private fun afterSpeech() {
+        bargeIn?.stop()
+        when {
+            conversationMode && !conversationPaused -> {
+                setPhase(AgentPhase.LISTENING, "دوباره گوش می‌دهم...")
+                continueConversationIfActive(350)
+            }
+            ConnectorStore(applicationContext).isContinuousVoiceEnabled() && expanded -> {
+                setPhase(AgentPhase.LISTENING, "دوباره گوش می‌دهم...")
+                mainHandler.postDelayed({ startListening() }, 350)
+            }
+            else -> { setPhase(AgentPhase.IDLE); startWakeWordIfIdle() }
+        }
     }
 
     private fun submitInput() {
@@ -498,10 +753,12 @@ class FokoFloatingOverlayService : Service() {
         inputField?.setText(""); sendMessage(text)
     }
 
-    private fun sendMessage(text: String) {
+    private fun sendMessage(text: String, showInLog: Boolean = true) {
         if (busy) { Toast.makeText(this, "فوکو هنوز در حال پردازش است...", Toast.LENGTH_SHORT).show(); return }
         busy = true
-        appendLog("شما", text)
+        VoskEngine.stop()
+        beginReplySpeech()
+        if (showInLog) appendLog("شما", text)
         transcript.add(ChatMessage(sender = MessageSender.USER, text = text))
         setPhase(AgentPhase.THINKING, "در حال تفکر..."); hideKeyboard()
         scope.launch {
@@ -514,12 +771,15 @@ class FokoFloatingOverlayService : Service() {
                     history = transcript.dropLast(1),
                     catalogModel = catalog,
                     keyStore = keyStore,
-                    personaPrompt = SystemPersona.GENERAL.systemPrompt
+                    personaPrompt = SystemPersona.GENERAL.systemPrompt,
+                    onDelta = { piece -> mainHandler.post { onStreamDelta(piece) } }
                 ) { event ->
                     when (event) {
                         is AgentEvent.Status -> mainHandler.post { setPhase(event.phase, event.message) }
                         is AgentEvent.ToolUsed -> mainHandler.post { setPhase(AgentPhase.THINKING, "ابزار: ${event.name}") }
                         is AgentEvent.Failure -> mainHandler.post { setPhase(AgentPhase.ERROR, event.message) }
+                        // اگر وسط کار ابزار اجرا شد، هر چه استریم شده متعلق به یک مرحله میانی بود
+
                         is AgentEvent.Reply -> Unit
                     }
                 }
@@ -579,6 +839,11 @@ class FokoFloatingOverlayService : Service() {
         )
 
     override fun onDestroy() {
+        FokoAccessibilityService.screenChangeListener = null
+        FokoNotificationListener.listener = null
+        mainHandler.removeCallbacks(liveExplainRunnable)
+        VoskEngine.stop()
+        stopSpeaking()
         try { recognizer?.destroy() } catch (_: Exception) {}
         try { tts?.stop(); tts?.shutdown() } catch (_: Exception) {}
         try { root?.let { windowManager?.removeView(it) } } catch (_: Exception) {}
@@ -595,6 +860,14 @@ class FokoFloatingOverlayService : Service() {
         const val ACTION_PAUSE = "com.example.foco.action.PAUSE"
         const val ACTION_RESUME = "com.example.foco.action.RESUME"
         const val ACTION_END = "com.example.foco.action.END"
+        const val ACTION_REFRESH_SETTINGS = "com.example.foco.action.REFRESH_SETTINGS"
+
+        /** بعد از تغییر تنظیمات صوتی، اگر دستیار در حال اجراست آن‌ها را اعمال کن. */
+        fun refreshSettings(context: Context) {
+            try {
+                context.startService(Intent(context, FokoFloatingOverlayService::class.java).setAction(ACTION_REFRESH_SETTINGS))
+            } catch (_: Exception) {}
+        }
 
         /** شروع مکالمه دوطرفه در دستیار شناور (بیرون از اپ هم ادامه دارد). */
         fun startConversation(context: Context) {

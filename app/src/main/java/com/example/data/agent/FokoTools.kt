@@ -56,8 +56,47 @@ object FokoTools {
         ),
         ToolSpec("remember", "ذخیره یک نکته در حافظه بلندمدت فوکو.", "title: عنوان, content: متن"),
         ToolSpec("recall", "یادآوری از حافظه بلندمدت فوکو.", "query: عبارت"),
-        ToolSpec("list_capabilities", "فهرست تمام توانایی‌ها و ابزارهای متصل.", "بدون آرگومان")
+        ToolSpec("list_capabilities", "فهرست تمام توانایی‌ها و ابزارهای متصل.", "بدون آرگومان"),
+        ToolSpec("tap_text", "زدن روی دکمه یا هر چیزی روی صفحه که این متن را دارد (کنترل گوشی).", "text: متن دقیق روی صفحه"),
+        ToolSpec("tap_xy", "زدن روی یک نقطه از صفحه با مختصات پیکسلی.", "x: مختصات افقی, y: مختصات عمودی"),
+        ToolSpec("type_text", "تایپ متن در کادر نوشتنی صفحه (مثلاً کادر پیام).", "text: متن, submit: true برای زدن دکمه ارسال"),
+        ToolSpec("scroll", "اسکرول صفحه.", "direction: down یا up"),
+        ToolSpec("press_key", "زدن کلیدهای سیستم.", "key: back یا home یا recents یا notifications"),
+        ToolSpec("read_notifications", "خواندن اعلان‌های اخیر گوشی (پیام‌های تلگرام، واتس‌اپ، پیامک و ...).", "count: تعداد"),
+        ToolSpec("reply_notification", "جواب دادن به یک پیام از طریق خود اعلان. فقط بعد از اینکه کاربر متن جواب را صریحاً تأیید کرد.", "index: شماره اعلان, text: متن جواب"),
+        ToolSpec("set_reminder", "تنظیم یادآور.", "text: متن یادآور, minutes: چند دقیقه بعد, at: زمان میلادی مثل 2026-11-12 08:00"),
+        ToolSpec("set_alarm", "تنظیم زنگ ساعت گوشی.", "hour: ساعت ۰ تا ۲۳, minute: دقیقه, label: عنوان"),
+        ToolSpec("add_calendar_event", "افزودن رویداد به تقویم گوشی.", "title: عنوان, start: زمان میلادی مثل 2026-11-12 08:00, minutes: مدت")
     )
+
+    /** تعریف ابزارها برای فراخوانی بومی (فرمت OpenAI tools). */
+    fun toolDeclarations(): org.json.JSONArray {
+        val arr = org.json.JSONArray()
+        val numeric = setOf("x", "y", "count", "index", "minutes", "hour", "minute")
+        specs.forEach { spec ->
+            val props = JSONObject()
+            val keys = spec.args.split(",").mapNotNull { part ->
+                val key = part.substringBefore(":").trim()
+                if (Regex("^[a-z_]+$").matches(key)) key to part.substringAfter(":", "").trim() else null
+            }
+            keys.forEach { (k, desc) ->
+                val type = when {
+                    k == "submit" -> "boolean"
+                    k in numeric -> "number"
+                    else -> "string"
+                }
+                props.put(k, JSONObject().put("type", type).put("description", desc))
+            }
+            val params = JSONObject().put("type", "object").put("properties", props)
+            arr.put(
+                JSONObject().put("type", "function").put(
+                    "function",
+                    JSONObject().put("name", spec.name).put("description", spec.description).put("parameters", params)
+                )
+            )
+        }
+        return arr
+    }
 
     fun describeForPrompt(): String = buildString {
         appendLine("ابزارهای در دسترس تو:")
@@ -137,6 +176,16 @@ object FokoTools {
                     ToolOutcome(true, if (hits.isEmpty()) "چیزی در حافظه پیدا نشد." else hits.joinToString("\n") { "- ${it.title}: ${it.content.take(400)}" })
                 }
                 "list_capabilities" -> ToolOutcome(true, describeForPrompt())
+                "tap_text" -> PhoneTools.tapText(args.optString("text"))
+                "tap_xy" -> PhoneTools.tapXY(args.optDouble("x", -1.0), args.optDouble("y", -1.0))
+                "type_text" -> PhoneTools.typeText(args.optString("text"), args.optString("submit").equals("true", true) || args.optBoolean("submit", false))
+                "scroll" -> PhoneTools.scroll(args.optString("direction", "down"))
+                "press_key" -> PhoneTools.press(args.optString("key"))
+                "read_notifications" -> PhoneTools.readNotifications(args.optInt("count", 8))
+                "reply_notification" -> PhoneTools.replyNotification(context, args.optInt("index", 1), args.optString("text"))
+                "set_reminder" -> PhoneTools.setReminder(context, args.optString("text"), args.optInt("minutes", 0), args.optString("at"))
+                "set_alarm" -> PhoneTools.setAlarm(context, args.optInt("hour", -1), args.optInt("minute", 0), args.optString("label"))
+                "add_calendar_event" -> PhoneTools.addCalendarEvent(context, args.optString("title"), args.optString("start"), args.optInt("minutes", 60))
                 else -> ToolOutcome(false, "ابزار ناشناخته: $name")
             }
         } catch (e: Exception) {
@@ -187,6 +236,8 @@ object FokoTools {
             "دوربین" to "com.android.camera", "camera" to "com.android.camera",
             "تنظیمات" to "com.android.settings", "settings" to "com.android.settings"
         )
+        // اول بین برنامه‌های نصب‌شده با نام نمایشی جستجو کن
+        try { PhoneTools.findAndOpenApp(context, name)?.let { return it } } catch (_: Exception) {}
         val pkg = packages.entries.firstOrNull { name.contains(it.key, ignoreCase = true) }?.value
         if (pkg != null) {
             val intent = context.packageManager.getLaunchIntentForPackage(pkg)

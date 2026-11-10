@@ -146,6 +146,22 @@ fun ChatScreen(
         }
     }
 
+    // دوربین: عکس بگیر، به پیام پیوست کن و از فوکو بخواه متنش را بخواند یا توضیح دهد
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            try {
+                val file = java.io.File(context.cacheDir, "foko_camera_${System.currentTimeMillis()}.jpg")
+                java.io.FileOutputStream(file).use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+                viewModel.attachImages(context, listOf(Uri.fromFile(file)))
+                Toast.makeText(context, "عکس پیوست شد؛ بنویس یا بگو چه کاری با آن انجام دهم (مثلاً «متنش را بخوان و ترجمه کن»)", Toast.LENGTH_LONG).show()
+            } catch (_: Exception) {
+                Toast.makeText(context, "ذخیره عکس ناموفق بود", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris: List<Uri> ->
@@ -461,6 +477,13 @@ fun ChatScreen(
                     }
                 },
                 onAttachClick = { photoPickerLauncher.launch("image/*") },
+                onCameraClick = {
+                    val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                        context, android.Manifest.permission.CAMERA
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                    if (granted) cameraLauncher.launch(null)
+                    else Toast.makeText(context, "اجازه دوربین را در «تنظیمات و دسترسی‌ها» بده", Toast.LENGTH_LONG).show()
+                },
                 onAttachFileClick = { filePickerLauncher.launch(arrayOf("*/*")) },
                 onVoiceClick = { onStartVoiceInput() },
                 onSelectModelClick = { showModelSelectorSheet = true },

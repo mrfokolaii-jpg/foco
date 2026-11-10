@@ -217,6 +217,8 @@ fun SettingsScreen(
 
         DevicePermissionsCard()
 
+        VoiceAssistantSettingsCard()
+
         // وضعیت مدل‌های فعال
         Card(
             modifier = Modifier.fillMaxWidth(),
