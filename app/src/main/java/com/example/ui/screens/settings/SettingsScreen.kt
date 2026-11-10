@@ -215,6 +215,8 @@ fun SettingsScreen(
             }
         }
 
+        DevicePermissionsCard()
+
         // وضعیت مدل‌های فعال
         Card(
             modifier = Modifier.fillMaxWidth(),

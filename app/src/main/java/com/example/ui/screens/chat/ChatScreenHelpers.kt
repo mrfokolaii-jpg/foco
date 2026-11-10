@@ -273,18 +273,237 @@ fun ModernChatInputBar(
     }
 }
 
+private enum class VoicePhase { STARTING, LISTENING, THINKING, SPEAKING, PAUSED, ERROR }
+
+/**
+ * Hands-free two-way voice conversation:
+ * listen (fa-IR) -> send to FOKO -> speak the reply -> listen again, until the user ends it.
+ */
 @Composable
 fun TwoWayVoiceModal(
     onDismiss: () -> Unit,
     onSendMessage: (String, (String) -> Unit) -> Unit,
     ttsEngine: TextToSpeech?
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+
+    var phase by remember { mutableStateOf(VoicePhase.STARTING) }
+    var statusText by remember { mutableStateOf("در حال آماده‌سازی...") }
+    var heardText by remember { mutableStateOf("") }
+    var replyText by remember { mutableStateOf("") }
+    var active by remember { mutableStateOf(true) }
+    var errorStreak by remember { mutableStateOf(0) }
+
+    val recognizer = remember {
+        if (android.speech.SpeechRecognizer.isRecognitionAvailable(context))
+            android.speech.SpeechRecognizer.createSpeechRecognizer(context)
+        else null
+    }
+
+    // Holder so callbacks can call the latest functions
+    val startListeningRef = remember { arrayOfNulls<() -> Unit>(1) }
+
+    fun hasMic(): Boolean = androidx.core.content.ContextCompat.checkSelfPermission(
+        context, android.Manifest.permission.RECORD_AUDIO
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    fun scheduleListen(delayMs: Long) {
+        mainHandler.postDelayed({ if (active) startListeningRef[0]?.invoke() }, delayMs)
+    }
+
+    fun speakReply(text: String) {
+        val engine = ttsEngine
+        val cleaned = com.example.util.SpeechTextCleaner.forSpeech(text)
+        if (engine == null || cleaned.isBlank()) {
+            scheduleListen(300)
+            return
+        }
+        try { engine.language = com.example.util.SpeechTextCleaner.preferredLocale(cleaned) } catch (_: Exception) {}
+        phase = VoicePhase.SPEAKING
+        statusText = "فوکو در حال صحبت است..."
+        val r = engine.speak(cleaned, TextToSpeech.QUEUE_FLUSH, null, "foko_two_way")
+        if (r != TextToSpeech.SUCCESS) scheduleListen(300)
+    }
+
+    fun startListening() {
+        if (!active) return
+        val sr = recognizer
+        if (sr == null) {
+            phase = VoicePhase.ERROR
+            statusText = "تشخیص گفتار روی این گوشی در دسترس نیست (Google Speech Services را نصب/فعال کنید)"
+            return
+        }
+        if (!hasMic()) {
+            phase = VoicePhase.ERROR
+            statusText = "دسترسی میکروفون داده نشده است"
+            return
+        }
+        try {
+            ttsEngine?.stop()
+            sr.cancel()
+            val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, "fa-IR")
+                putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(android.speech.RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            }
+            phase = VoicePhase.LISTENING
+            statusText = "در حال شنیدن... صحبت کنید"
+            sr.startListening(intent)
+        } catch (e: Exception) {
+            phase = VoicePhase.ERROR
+            statusText = "شروع شنیدن ناموفق بود: ${e.localizedMessage}"
+        }
+    }
+    startListeningRef[0] = { startListening() }
+
+    val micPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startListening() else {
+            phase = VoicePhase.ERROR
+            statusText = "بدون دسترسی میکروفون مکالمه صوتی ممکن نیست"
+        }
+    }
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        recognizer?.setRecognitionListener(object : android.speech.RecognitionListener {
+            override fun onReadyForSpeech(params: android.os.Bundle?) {
+                phase = VoicePhase.LISTENING; statusText = "در حال شنیدن... صحبت کنید"
+            }
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() { statusText = "در حال تشخیص..." }
+            override fun onError(error: Int) {
+                if (!active) return
+                when (error) {
+                    android.speech.SpeechRecognizer.ERROR_NO_MATCH,
+                    android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> scheduleListen(250)
+                    android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
+                        // Usually the floating widget is holding the recognizer; retry shortly
+                        try { recognizer?.cancel() } catch (_: Exception) {}
+                        scheduleListen(900)
+                    }
+                    android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
+                        phase = VoicePhase.ERROR; statusText = "دسترسی میکروفون داده نشده است"
+                    }
+                    else -> {
+                        errorStreak++
+                        if (errorStreak <= 3) scheduleListen(700) else {
+                            phase = VoicePhase.ERROR
+                            statusText = "خطای تشخیص گفتار (کد $error). اینترنت/VPN را بررسی کنید و دوباره امتحان کنید"
+                        }
+                    }
+                }
+            }
+            override fun onResults(results: android.os.Bundle?) {
+                val text = results?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()?.trim().orEmpty()
+                if (!active) return
+                if (text.isBlank()) { scheduleListen(250); return }
+                errorStreak = 0
+                heardText = text
+                replyText = ""
+                phase = VoicePhase.THINKING
+                statusText = "فوکو در حال فکر کردن..."
+                onSendMessage(text) { reply ->
+                    mainHandler.post {
+                        replyText = reply
+                        if (active) speakReply(reply)
+                    }
+                }
+            }
+            override fun onPartialResults(partialResults: android.os.Bundle?) {
+                val p = partialResults?.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                if (!p.isNullOrBlank()) heardText = p
+            }
+            override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+        })
+
+        ttsEngine?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {}
+            override fun onDone(utteranceId: String?) {
+                if (utteranceId == "foko_two_way") mainHandler.post { if (active) startListeningRef[0]?.invoke() }
+            }
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                if (utteranceId == "foko_two_way") mainHandler.post { if (active) startListeningRef[0]?.invoke() }
+            }
+        })
+
+        if (hasMic()) startListening()
+        else micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+
+        onDispose {
+            active = false
+            mainHandler.removeCallbacksAndMessages(null)
+            try { recognizer?.cancel() } catch (_: Exception) {}
+            try { recognizer?.destroy() } catch (_: Exception) {}
+            try { ttsEngine?.stop() } catch (_: Exception) {}
+        }
+    }
+
     androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("مکالمه صوتی") },
-        text = { Text("قابلیت مکالمه صوتی دوطرفه") },
+        onDismissRequest = { },
+        title = { Text("مکالمه صوتی دوطرفه", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = when (phase) {
+                            VoicePhase.SPEAKING -> Icons.Default.VolumeUp
+                            else -> Icons.Default.Mic
+                        },
+                        contentDescription = null,
+                        tint = when (phase) {
+                            VoicePhase.ERROR -> MaterialTheme.colorScheme.error
+                            VoicePhase.PAUSED -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> PersianTurquoise
+                        },
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(statusText, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (heardText.isNotBlank()) {
+                    Text("شما: $heardText", style = MaterialTheme.typography.bodySmall)
+                }
+                if (replyText.isNotBlank()) {
+                    Text(
+                        "فوکو: " + (if (replyText.length > 300) replyText.take(300) + "..." else replyText),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("بستن") }
+            TextButton(onClick = {
+                active = false
+                onDismiss()
+            }) { Text("پایان مکالمه") }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                if (phase == VoicePhase.PAUSED || phase == VoicePhase.ERROR) {
+                    active = true
+                    errorStreak = 0
+                    if (hasMic()) startListening()
+                    else micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                } else {
+                    active = false
+                    mainHandler.removeCallbacksAndMessages(null)
+                    try { recognizer?.cancel() } catch (_: Exception) {}
+                    try { ttsEngine?.stop() } catch (_: Exception) {}
+                    phase = VoicePhase.PAUSED
+                    statusText = "مکث شد"
+                }
+            }) {
+                Text(if (phase == VoicePhase.PAUSED || phase == VoicePhase.ERROR) "ادامه / تلاش دوباره" else "مکث")
+            }
         }
     )
 }
