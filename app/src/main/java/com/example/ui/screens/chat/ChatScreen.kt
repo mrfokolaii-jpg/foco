@@ -95,13 +95,40 @@ fun ChatScreen(
     var showModelSelectorSheet by remember { mutableStateOf(false) }
     var showPluginsSheet by remember { mutableStateOf(false) }
     var showTwoWayVoiceModal by remember { mutableStateOf(false) }
+
+    // مکالمه دوطرفه: اگر اجازه نمایش روی برنامه‌ها و میکروفون داده شده، در دستیار شناور اجرا می‌شود
+    // تا بیرون از اپ (مرورگر، صفحه اصلی، اپ‌های دیگر) هم ادامه داشته باشد. وگرنه پنجره داخل اپ.
+    val launchTwoWayVoice: () -> Unit = {
+        val canOverlay = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M ||
+            android.provider.Settings.canDrawOverlays(context)
+        val hasMic = androidx.core.content.ContextCompat.checkSelfPermission(
+            context, android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (canOverlay && hasMic) {
+            com.example.service.FokoFloatingOverlayService.startConversation(context.applicationContext)
+            Toast.makeText(
+                context,
+                "مکالمه روی دایره شناور شروع شد؛ می‌توانی از اپ بیرون بروی. کنترل‌ها در اعلان است.",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            if (!canOverlay) {
+                Toast.makeText(
+                    context,
+                    "برای ادامه مکالمه بیرون از اپ، اجازه «نمایش روی برنامه‌های دیگر» را در تنظیمات و دسترسی‌ها بده.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            showTwoWayVoiceModal = true
+        }
+    }
     var isListeningInBar by remember { mutableStateOf(false) }
 
     val connectorStore = remember { ConnectorStore(context.applicationContext) }
 
     LaunchedEffect(openTwoWayVoice) {
         if (openTwoWayVoice) {
-            showTwoWayVoiceModal = true
+            launchTwoWayVoice()
             onTwoWayVoiceConsumed()
         }
     }
@@ -234,7 +261,7 @@ fun ChatScreen(
                     },
                     onOpenTwoWayVoice = {
                         scope.launch { drawerState.close() }
-                        showTwoWayVoiceModal = true
+                        launchTwoWayVoice()
                     },
                     onNavigateToScreen = { route ->
                         scope.launch { drawerState.close() }
@@ -280,7 +307,7 @@ fun ChatScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { showTwoWayVoiceModal = true },
+                        onClick = { launchTwoWayVoice() },
                         modifier = Modifier
                             .clip(CircleShape)
                             .background(PersianTurquoise.copy(alpha = 0.15f))

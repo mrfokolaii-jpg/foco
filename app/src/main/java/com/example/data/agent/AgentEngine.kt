@@ -44,6 +44,8 @@ object AgentEngine {
             appendLine("۴. در هر نوبت فقط یک ابزار را صدا بزن. بعد از دیدن نتیجه، یا ابزار بعدی را صدا بزن یا پاسخ نهایی را بده.")
             appendLine("۵. پاسخ نهایی را بدون هیچ تگی، به فارسی روان، کامل و مفید بنویس.")
             appendLine("۶. تگ را کامل و درست بنویس: با <foko_tool> شروع و با </foko_tool> تمام شود. JSON باید معتبر باشد.")
+            appendLine("۷. هر وقت کاربر درباره صفحه گوشی، برنامه باز، یا «چی می‌بینی / صفحه رو ببین» پرسید، اول ابزار read_screen را اجرا کن؛ برای این کار هرگز web_search نکن.")
+            appendLine("۸. وقتی نتیجه ابزار رسید، اگر کافی است، فقط پاسخ نهایی فارسی بده و ابزار را تکرار نکن.")
             appendLine()
             appendLine(FokoTools.describeForPrompt())
             if (memory.isNotBlank()) {
@@ -71,6 +73,8 @@ object AgentEngine {
         onEvent(AgentEvent.Status(AgentPhase.THINKING, "در حال تحلیل درخواست..."))
 
         var lastReply = ""
+        var emptyRetries = 0
+        var lastToolSummary = ""
         var step = 0
         while (step < MAX_STEPS) {
             step++
@@ -88,32 +92,64 @@ object AgentEngine {
                     return "⚠️ ${result.message}"
                 }
                 is ApiResult.Success -> {
-                    val reply = result.data.replyText.trim()
+                    val reply = result.data.replyText.orEmpty().trim()
+                    if (isEmptyReply(reply)) {
+                        // مدل جواب خالی یا «null» داد؛ یک بار دیگر تلاش کن
+                        emptyRetries++
+                        if (emptyRetries <= 1) { step++; continue }
+                        val msg = "متأسفم، مدل جوابی نداد. لطفاً دوباره بگو یا مدل دیگری انتخاب کن."
+                        onEvent(AgentEvent.Reply(msg))
+                        return msg
+                    }
                     lastReply = reply
                     val call = parseToolCall(reply)
                     if (call == null) {
-                        onEvent(AgentEvent.Reply(reply))
-                        return reply
+                        val clean = stripToolMarkup(reply).ifBlank {
+                            "نتوانستم درخواست را کامل انجام دهم. لطفاً دوباره و ساده‌تر بگو."
+                        }
+                        onEvent(AgentEvent.Reply(clean))
+                        return clean
                     }
                     val toolName = call.optString("name")
                     val args = call.optJSONObject("args") ?: JSONObject()
                     onEvent(AgentEvent.Status(AgentPhase.THINKING, "اجرای ابزار: $toolName"))
                     val outcome = FokoTools.execute(context, toolName, args)
                     onEvent(AgentEvent.ToolUsed(toolName, outcome.text.take(400)))
+                    lastToolSummary = outcome.text.take(600)
                     working.add(ChatMessage(sender = MessageSender.ASSISTANT, text = reply))
                     working.add(
                         ChatMessage(
                             sender = MessageSender.USER,
                             text = "نتیجه اجرای ابزار $toolName:\n${outcome.text}\n\n" +
-                                "اگر به اطلاعات یا ابزار بیشتری نیاز داری مرحله بعد را انجام بده، در غیر این صورت پاسخ نهایی فارسی را بنویس."
+                                "اگر به اطلاعات یا ابزار بیشتری نیاز داری مرحله بعد را انجام بده، در غیر این صورت پاسخ نهایی فارسی را بنویس.",
+                            imageBase64 = outcome.imageBase64
                         )
                     )
                 }
             }
         }
-        val fallback = lastReply.ifBlank { "نتوانستم پاسخی تولید کنم. لطفاً دوباره تلاش کن." }
+        // هرگز متن خام ابزار را به کاربر نشان نده یا بلند نخوان
+        val cleanedLast = if (parseToolCall(lastReply) != null) "" else stripToolMarkup(lastReply)
+        val fallback = cleanedLast.ifBlank {
+            if (lastToolSummary.isNotBlank()) "این چیزی است که پیدا کردم:\n$lastToolSummary"
+            else "نتوانستم پاسخی تولید کنم. لطفاً دوباره تلاش کن."
+        }
         onEvent(AgentEvent.Reply(fallback))
         return fallback
+    }
+
+    private fun isEmptyReply(reply: String): Boolean {
+        val r = reply.trim().trim('"').lowercase()
+        return r.isEmpty() || r == "null" || r == "undefined" || r == "none"
+    }
+
+    /** حذف هر تکه تگ یا JSON ابزار از متنی که قرار است به کاربر نشان داده شود. */
+    fun stripToolMarkup(text: String): String {
+        var s = text
+        s = s.replace(Regex("(?is)<?\\s*foko[_-]?tool\\s*>?.*?</?\\s*foko[_-]?tool\\s*>?"), " ")
+        s = s.replace(Regex("(?i)</?\\s*foko[_-]?tool\\s*>?"), " ")
+        s = s.replace(Regex("(?s)\\{\\s*\"name\"\\s*:.*?\"args\".*?\\}\\s*\\}"), " ")
+        return s.replace(Regex("[ \\t]{2,}"), " ").trim()
     }
 
     fun parseToolCall(reply: String): JSONObject? {
@@ -141,18 +177,48 @@ object AgentEngine {
         }
         val raw = candidate ?: return null
         return try {
-            val obj = JSONObject(raw)
+            val obj = normalizeCall(JSONObject(raw))
             if (obj.optString("name").isBlank()) null else obj
         } catch (_: Exception) {
             // یک بار دیگر با تعمیر سعی کن
             try {
                 val repaired = tryRepairJson(raw) ?: return null
-                val obj = JSONObject(repaired)
+                val obj = normalizeCall(JSONObject(repaired))
                 if (obj.optString("name").isBlank()) null else obj
             } catch (_: Exception) {
                 null
             }
         }
+    }
+
+    /** کلیدها و مقدارهایی مثل "<args" یا "mrfokolaii-jpg/<foco" را تمیز می‌کند. */
+    private fun normalizeCall(obj: JSONObject): JSONObject {
+        val out = JSONObject()
+        val name = obj.optString("name").trim().trim('<', '>', ' ')
+        out.put("name", name)
+        var args: JSONObject? = obj.optJSONObject("args")
+        if (args == null) {
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                if (k.trim('<', '>', ' ', '"').equals("args", ignoreCase = true)) {
+                    args = obj.optJSONObject(k)
+                    break
+                }
+            }
+        }
+        val cleanArgs = JSONObject()
+        args?.let { a ->
+            val keys = a.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                val v = a.get(k)
+                val cleanKey = k.trim('<', '>', ' ')
+                cleanArgs.put(cleanKey, if (v is String) v.replace("<", "").replace(">", "").trim() else v)
+            }
+        }
+        out.put("args", cleanArgs)
+        return out
     }
 
     /**
@@ -169,7 +235,9 @@ object AgentEngine {
         val lastBrace = s.lastIndexOf('}')
         if (lastBrace > 0) s = s.substring(0, lastBrace + 1)
 
-        // ,> args  →  ,"args
+        // "<args"  یا  ">args"  →  "args"
+        s = s.replace(Regex("\"\\s*[<>]+\\s*args\""), "\"args\"")
+        // ",> args  →  ,"args
         s = s.replace(Regex(",\\s*>\\s*args"), ",\"args\"")
         s = s.replace(Regex(",\\s*>\\s*\"args\""), ",\"args\"")
         // name بدون کوتیشن درست

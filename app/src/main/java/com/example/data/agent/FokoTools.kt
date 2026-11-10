@@ -26,7 +26,9 @@ data class ToolSpec(
 
 data class ToolOutcome(
     val ok: Boolean,
-    val text: String
+    val text: String,
+    /** تصویری که باید همراه نتیجه به مدل داده شود (مثلاً عکس صفحه). */
+    val imageBase64: String? = null
 )
 
 object FokoTools {
@@ -34,7 +36,7 @@ object FokoTools {
     val specs: List<ToolSpec> = listOf(
         ToolSpec("web_search", "جستجوی زنده در وب و برگرداندن عنوان/لینک/خلاصه نتایج.", "query: متن جستجو"),
         ToolSpec("read_web_page", "خواندن متن کامل یک صفحه وب (قابلیت مرورگر).", "url: آدرس صفحه"),
-        ToolSpec("read_screen", "خواندن متنی که همین حالا روی صفحه گوشی دیده می‌شود (بینایی صفحه).", "بدون آرگومان"),
+        ToolSpec("read_screen", "دیدن صفحه گوشی: عکس صفحه و متن‌های روی آن را می‌گیرد. هر وقت کاربر درباره صفحه، اپ باز، یا «چی می‌بینی» پرسید اول این را اجرا کن.", "بدون آرگومان"),
         ToolSpec("open_app", "باز کردن یک اپلیکیشن روی گوشی با نام آن.", "name: نام برنامه مثل تلگرام"),
         ToolSpec("device_action", "اجرای فرمان دستگاه: اسکرول، برگشت، هوم، آلارم، تنظیمات، تماس و ... .", "command: دستور"),
         ToolSpec("save_file", "ذخیره محتوا در حافظه گوشی.", "name: نام فایل, content: متن"),
@@ -155,12 +157,22 @@ object FokoTools {
         })
     }
 
-    private fun readScreen(): ToolOutcome {
+    private suspend fun readScreen(): ToolOutcome {
         if (!FokoAccessibilityService.isRunning()) {
-            return ToolOutcome(false, "سرویس دسترسی‌پذیری فعال نیست؛ برای بینایی صفحه آن را در تنظیمات فوکو روشن کنید.")
+            return ToolOutcome(
+                false,
+                "سرویس دسترسی‌پذیری فوکو خاموش است، پس صفحه را نمی‌بینم. به کاربر بگو در «تنظیمات و دسترسی‌ها» دکمه دسترسی‌پذیری را بزند و فوکو را روشن کند."
+            )
         }
+        val pkg = FokoAccessibilityService.currentPackageName().orEmpty()
         val text = FokoAccessibilityService.getScreenContentHierarchy()
-        return ToolOutcome(true, "محتوای صفحه جاری:\n$text")
+        val shot = FokoAccessibilityService.captureScreenshotBase64()
+        val header = buildString {
+            if (pkg.isNotBlank()) appendLine("برنامه باز: $pkg")
+            if (shot != null) appendLine("عکس صفحه پیوست شده است؛ آن را با دقت ببین و توضیح بده.")
+            else appendLine("عکس صفحه گرفته نشد (اندروید قدیمی یا خطا)؛ فقط متن صفحه در دسترس است.")
+        }
+        return ToolOutcome(true, "${header}متن‌های روی صفحه:\n$text", shot)
     }
 
     private fun openApp(context: Context, name: String): String {

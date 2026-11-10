@@ -4,7 +4,14 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Path
+import android.os.Build
+import android.util.Base64
+import android.view.Display
+import kotlinx.coroutines.suspendCancellableCoroutine
+import java.io.ByteArrayOutputStream
+import kotlin.coroutines.resume
 import android.os.Bundle
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
@@ -62,6 +69,52 @@ class FokoAccessibilityService : AccessibilityService() {
             return instance?.performGlobalAction(GLOBAL_ACTION_NOTIFICATIONS) ?: false
         }
 
+        /**
+         * عکس صفحه فعلی گوشی (اندروید ۱۱ به بالا) به صورت JPEG base64 کوچک‌شده.
+         * اگر سرویس فعال نباشد یا اندروید قدیمی باشد null برمی‌گرداند.
+         */
+        suspend fun captureScreenshotBase64(maxSide: Int = 1080): String? {
+            val service = instance ?: return null
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+            return suspendCancellableCoroutine { cont ->
+                try {
+                    service.takeScreenshot(
+                        Display.DEFAULT_DISPLAY,
+                        service.mainExecutor,
+                        object : AccessibilityService.TakeScreenshotCallback {
+                            override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                                val encoded = try {
+                                    val hw = Bitmap.wrapHardwareBuffer(result.hardwareBuffer, result.colorSpace)
+                                    result.hardwareBuffer.close()
+                                    if (hw == null) null else {
+                                        val soft = hw.copy(Bitmap.Config.ARGB_8888, false)
+                                        hw.recycle()
+                                        val scale = maxSide.toFloat() / maxOf(soft.width, soft.height)
+                                        val scaled = if (scale < 1f) {
+                                            Bitmap.createScaledBitmap(soft, (soft.width * scale).toInt(), (soft.height * scale).toInt(), true)
+                                        } else soft
+                                        val out = ByteArrayOutputStream()
+                                        scaled.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                                        Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                                    }
+                                } catch (_: Exception) { null }
+                                if (cont.isActive) cont.resume(encoded)
+                            }
+
+                            override fun onFailure(errorCode: Int) {
+                                if (cont.isActive) cont.resume(null)
+                            }
+                        }
+                    )
+                } catch (_: Exception) {
+                    if (cont.isActive) cont.resume(null)
+                }
+            }
+        }
+
+        /** نام بسته برنامه‌ای که الان روی صفحه است. */
+        fun currentPackageName(): String? = instance?.rootInActiveWindow?.packageName?.toString()
+
         fun getScreenContentHierarchy(): String {
             val service = instance ?: return "سرویس دسترسی‌پذیری فعال نیست. لطفاً آن را در تنظیمات فعال کنید."
             val root = service.rootInActiveWindow ?: return "صفحه فعال یافت نشد."
@@ -70,7 +123,7 @@ class FokoAccessibilityService : AccessibilityService() {
             extractNodeTexts(root, texts)
 
             return if (texts.isNotEmpty()) {
-                texts.distinct().take(30).joinToString("\n")
+                texts.distinct().take(60).joinToString("\n")
             } else {
                 "متنی در صفحه جاری یافت نشد."
             }
